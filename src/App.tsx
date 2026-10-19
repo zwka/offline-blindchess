@@ -268,6 +268,10 @@ function App() {
   };
 
   useEffect(() => {
+    if (__APP_TARGET__ !== "pwa") {
+      return;
+    }
+
     const handleInstallPrompt = (event: BeforeInstallPromptEvent) => {
       event.preventDefault();
       setInstallPrompt(event);
@@ -523,9 +527,11 @@ function App() {
               <House size={17} /> <span>Home</span>
             </button>
           )}
-          <button className="install-button" type="button" onClick={() => void installApp()}>
-            <Download size={16} /> <span>Install</span>
-          </button>
+          {__APP_TARGET__ === "pwa" && (
+            <button className="install-button" type="button" onClick={() => void installApp()}>
+              <Download size={16} /> <span>Install</span>
+            </button>
+          )}
         </nav>
       </header>
 
@@ -727,7 +733,7 @@ function App() {
               </div>
             </>
           )}
-          {storageError && <p className="storage-warning" role="alert">History could not be updated in this browser.</p>}
+          {storageError && <p className="storage-warning" role="alert">History could not be updated on this device.</p>}
         </main>
       )}
 
@@ -770,7 +776,7 @@ function App() {
         </Dialog>
       )}
 
-      {installHelpOpen && (
+      {__APP_TARGET__ === "pwa" && installHelpOpen && (
         <Dialog title="Install Offline Blind Chess" onClose={() => setInstallHelpOpen(false)}>
           <div className="install-instructions">
             <section><h3>Desktop or Android</h3><p>In Chrome, open the menu and choose <strong>Install app</strong> or <strong>Install page as app</strong>.</p></section>

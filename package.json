@@ -5,18 +5,29 @@
   "type": "module",
   "scripts": {
     "dev": "vite --host 0.0.0.0",
-    "build": "tsc -b && vite build",
-    "preview": "vite preview --host 0.0.0.0",
+    "build": "npm run build:web",
+    "build:web": "tsc -b && vite build --mode pwa",
+    "build:android": "tsc -b && vite build --mode android",
+    "preview": "vite preview --outDir dist/pwa --host 0.0.0.0",
     "test": "vitest run",
+    "test:build-targets": "npm run build:web && npm run build:android && node scripts/verify-build-targets.mjs",
+    "android:sync": "npm run build:android && npm run android:icons && cap sync android",
+    "android:apk": "npm run android:sync && cd android && ./gradlew assembleRelease",
+    "android:apk:debug": "npm run android:sync && cd android && ./gradlew assembleDebug",
+    "android:test:device": "npm run android:sync && cd android && ./gradlew connectedDebugAndroidTest",
+    "android:icons": "node scripts/generate-android-icons.mjs",
     "icons": "node scripts/generate-pwa-icons.mjs"
   },
   "dependencies": {
+    "@capacitor/android": "^7.6.9",
+    "@capacitor/core": "^7.6.9",
     "lucide-react": "^0.468.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "zod": "^3.24.2"
   },
   "devDependencies": {
+    "@capacitor/cli": "^7.6.9",
     "@types/react": "^19.0.8",
     "@types/react-dom": "^19.0.3",
     "@vitejs/plugin-react": "^4.3.4",

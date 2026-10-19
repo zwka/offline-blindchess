@@ -1,6 +1,6 @@
 # Offline Blind Chess
 
-An installable, offline-first chess-training PWA with Square Colors, Same Color, Coordinates, and on-device attempt history.
+Offline Blind Chess provides a browser PWA for Apple devices and an offline-installable Android app, with Square Colors, Same Color, Coordinates, and on-device attempt history.
 
 Choose a drill to open its first question. The clock stays at 60 seconds until you answer. Your first answer starts the clock and counts toward the attempt.
 
@@ -33,15 +33,42 @@ npm install
 npm run dev
 ```
 
-## Install on a mobile device
+## Install on Android
 
-Use a Cloudflare Quick Tunnel to open the production build on a phone over HTTPS. Install [`cloudflared`](https://developers.cloudflare.com/tunnel/downloads/) first. On macOS with Homebrew, run `brew install cloudflared`.
+The Android app bundles the production web assets in a Capacitor shell. It launches without a network connection, and its Attempt History remains in the app's local WebView storage. Android 6.0 (API 23) or newer is required.
 
-Build the app, then start the preview server in one terminal:
+Install Android Studio with the Android SDK and JDK 21, then install JavaScript dependencies and build the APK:
 
 ```sh
 npm install
-npm run build
+npm run android:apk
+```
+
+Release APKs require a signing key. Create it outside the repository and keep a backup; every update must use this same key and app identity:
+
+```sh
+keytool -genkeypair -v -keystore "$HOME/offline-blind-chess-release.jks" \
+  -keyalg RSA -keysize 2048 -validity 10000 -alias offline-blind-chess
+export ANDROID_KEYSTORE_PATH="$HOME/offline-blind-chess-release.jks"
+export ANDROID_KEY_ALIAS="offline-blind-chess"
+export ANDROID_KEYSTORE_PASSWORD="..."
+export ANDROID_KEY_PASSWORD="..."
+npm run android:apk
+```
+
+The signed APK is `android/app/build/outputs/apk/release/app-release.apk`. Transfer it to the device over USB, Bluetooth, or another local method, then open it from the device's file manager. If Android asks, allow the file manager to install unknown apps for this installation. This grants permission to that source; do not disable device-wide security protections. For a temporary development build, `npm run android:apk:debug` produces a debug-signed APK that cannot update a release-signed installation.
+
+Keep `applicationId` in `android/app/build.gradle` and `appId` in `capacitor.config.ts` unchanged. Increase `versionCode` in `android/app/build.gradle` for every release. Keep the local HTTPS origin in `capacitor.config.ts` stable so WebView storage remains available across updates.
+
+## Install the Apple PWA
+
+Apple devices continue to use the browser PWA served over HTTPS. Install [`cloudflared`](https://developers.cloudflare.com/tunnel/downloads/) first. On macOS with Homebrew, run `brew install cloudflared`.
+
+Build the PWA, then start the preview server in one terminal:
+
+```sh
+npm install
+npm run build:web
 npm run preview -- --host 127.0.0.1 --port 4173 --strictPort
 ```
 
@@ -51,21 +78,20 @@ Start the tunnel in a second terminal:
 cloudflared tunnel --url http://127.0.0.1:4173 --http-host-header localhost
 ```
 
-Open the `https://` URL printed by `cloudflared` on your phone. Install the app from the browser menu. On Android, choose **Install app**. On iPhone, open the link in Safari, tap **Share**, then choose **Add to Home Screen**.
-
-Keep both terminals open while you install or use the app online. The service worker caches the app so it can open offline after its first online visit. A Quick Tunnel URL is temporary, changes each time `cloudflared` starts, and is public to anyone who knows it. An installed app is tied to that URL, so install it again when the URL changes.
+Open the `https://` URL printed by `cloudflared` on the iPhone in Safari, tap **Share**, then choose **Add to Home Screen**. Keep both terminals open while installing or using the app online. The service worker caches the PWA after its first online visit. A Quick Tunnel URL is temporary and public to anyone who knows it; an installed PWA is tied to that URL, so install it again when the URL changes.
 
 ## Verify
 
 ```sh
 npm test
-npm run build
-npm run preview
+npm run test:build-targets
+npm run build:web
+npm run build:android
 ```
 
-The production build precaches the app shell and its assets. After `npm run preview` starts the built app, open it once while online, then reload it offline to use the drill.
+The build-target check verifies that the PWA keeps its manifest, install UI, and service-worker registration, while the Android assets exclude browser installation UI and service-worker startup. Both builds use the same training and device-local history code.
 
-On desktop, Chrome offers installation from its menu.
+With an emulator or device connected, `npm run android:test:device` checks the installed package identity. Also install the release APK with networking disabled, complete each drill, confirm Score and Accuracy and saved history, force-stop and relaunch, then install a newer signed APK over it to verify history survives updates.
 
 ## App icons
 
