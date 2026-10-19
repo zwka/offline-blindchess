@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import {
   ArrowLeft,
   ArrowRight,
@@ -45,6 +45,14 @@ import type {
   TrainingModule
 } from "./domain";
 import { clearAttemptHistory, readAttempts, saveAttempt } from "./storage";
+import {
+  applyTheme,
+  readSystemTheme,
+  readThemePreference,
+  saveThemePreference,
+  subscribeToSystemTheme
+} from "./preferences";
+import type { ResolvedTheme, ThemePreference } from "./preferences";
 
 interface BeforeInstallPromptEvent extends Event {
   prompt(): Promise<void>;
@@ -102,6 +110,33 @@ function BrandMark() {
         <span key={index} />
       ))}
     </span>
+  );
+}
+
+function ThemeControl({
+  preference,
+  onChange
+}: {
+  preference: ThemePreference;
+  onChange: (preference: ThemePreference) => void;
+}) {
+  return (
+    <fieldset className="theme-control">
+      <legend>Color theme</legend>
+      <span className="theme-control-label" aria-hidden="true">Theme</span>
+      {(["system", "light", "dark"] as const).map((option) => (
+        <label className="theme-option" key={option}>
+          <input
+            type="radio"
+            name="color-theme"
+            value={option}
+            checked={preference === option}
+            onChange={() => onChange(option)}
+          />
+          <span>{option[0]?.toUpperCase()}{option.slice(1)}</span>
+        </label>
+      ))}
+    </fieldset>
   );
 }
 
@@ -241,6 +276,8 @@ function App() {
   const [round, setRound] = useState<RoundState>({ kind: "idle" });
   const roundRef = useRef(round);
   const [attempts, setAttempts] = useState<Attempt[]>(readAttempts);
+  const [themePreference, setThemePreference] = useState<ThemePreference>(readThemePreference);
+  const [systemTheme, setSystemTheme] = useState<ResolvedTheme>(readSystemTheme);
   const [secondsLeft, setSecondsLeft] = useState(60);
   const [ruleOpen, setRuleOpen] = useState(false);
   const [installHelpOpen, setInstallHelpOpen] = useState(false);
@@ -275,6 +312,12 @@ function App() {
     window.addEventListener("beforeinstallprompt", handleInstallPrompt);
     return () => window.removeEventListener("beforeinstallprompt", handleInstallPrompt);
   }, []);
+
+  useEffect(() => subscribeToSystemTheme(setSystemTheme), []);
+
+  useLayoutEffect(() => {
+    applyTheme(themePreference, systemTheme);
+  }, [themePreference, systemTheme]);
 
   useEffect(() => {
     const handleVisibility = () => {
@@ -384,6 +427,11 @@ function App() {
 
   const selectTraining = (training: TrainingModule) => {
     prepareAttempt(training);
+  };
+
+  const selectTheme = (preference: ThemePreference) => {
+    setThemePreference(preference);
+    saveThemePreference(preference);
   };
 
   const openHistory = (training: TrainingModule = historyTraining) => {
@@ -527,6 +575,7 @@ function App() {
             <Download size={16} /> <span>Install</span>
           </button>
         </nav>
+        <ThemeControl preference={themePreference} onChange={selectTheme} />
       </header>
 
       {screen === "home" && (
