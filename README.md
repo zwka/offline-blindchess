@@ -47,7 +47,7 @@ Chrome offers installation from its menu on desktop and Android. On iPhone, use 
 
 ## App icons
 
-The PWA and Apple home-screen icons are generated locally from the checkerboard mark:
+The PWA, browser tab, and Apple home-screen icons are generated from `icon_blind.jpeg`:
 
 ```sh
 npm run icons
