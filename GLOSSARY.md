@@ -1,6 +1,6 @@
 # Offline Blind Chess
 
-This context covers blindfold chess training drills and the practice history they produce.
+This context covers blindfold chess training drills, the practice history they produce, and installing the training app on a mobile device.
 
 ## Language
 
@@ -39,3 +39,6 @@ A chronological record of a player's completed attempts for one training module.
 
 **Personal Best**:
 The highest score a player has achieved in one training module.
+
+**Mobile Installation**:
+The process of adding the training app to a phone's home screen from a mobile browser.

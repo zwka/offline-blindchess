@@ -64,23 +64,21 @@ npm run dev
 
 Use a Cloudflare Quick Tunnel to open the production build on a phone over HTTPS. Install [`cloudflared`](https://developers.cloudflare.com/tunnel/downloads/) first. On macOS with Homebrew, run `brew install cloudflared`.
 
-Build the app, then start the preview server in one terminal:
+From the repository root, run:
 
 ```sh
-npm install
-npm run build
-npm run preview -- --host 127.0.0.1 --port 4173 --strictPort
+./offline-blindchess --install-mobile
 ```
 
-Start the tunnel in a second terminal:
+Open the printed `https://` URL on your phone and install the app from the browser menu. On Android, choose **Install app**. On iPhone, open the link in Safari, tap **Share**, then choose **Add to Home Screen**.
+
+The command installs dependencies, builds the app, then starts the preview server and tunnel in the background. They keep running after the command exits. Stop both from the repository with:
 
 ```sh
-cloudflared tunnel --url http://127.0.0.1:4173 --http-host-header localhost
+./offline-blindchess --shutdown
 ```
 
-Open the `https://` URL printed by `cloudflared` on your phone. Install the app from the browser menu. On Android, choose **Install app**. On iPhone, open the link in Safari, tap **Share**, then choose **Add to Home Screen**.
-
-Keep both terminals open while you install or use the app online. The service worker caches the app so it can open offline after its first online visit. A Quick Tunnel URL is temporary, changes each time `cloudflared` starts, and is public to anyone who knows it. An installed app is tied to that URL, so install it again when the URL changes.
+The service worker caches the app so it can open offline after its first online visit. A Quick Tunnel URL is temporary, changes each time the tunnel starts, and is public to anyone who knows it. An installed app is tied to that URL, so install it again when the URL changes.
 
 ## Verify
 
