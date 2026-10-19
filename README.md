@@ -33,6 +33,28 @@ npm install
 npm run dev
 ```
 
+## Install on a mobile device
+
+Use a Cloudflare Quick Tunnel to open the production build on a phone over HTTPS. Install [`cloudflared`](https://developers.cloudflare.com/tunnel/downloads/) first. On macOS with Homebrew, run `brew install cloudflared`.
+
+Build the app, then start the preview server in one terminal:
+
+```sh
+npm install
+npm run build
+npm run preview -- --host 127.0.0.1 --port 4173 --strictPort
+```
+
+Start the tunnel in a second terminal:
+
+```sh
+cloudflared tunnel --url http://127.0.0.1:4173 --http-host-header localhost
+```
+
+Open the `https://` URL printed by `cloudflared` on your phone. Install the app from the browser menu. On Android, choose **Install app**. On iPhone, open the link in Safari, tap **Share**, then choose **Add to Home Screen**.
+
+Keep both terminals open while you install or use the app online. The service worker caches the app so it can open offline after its first online visit. A Quick Tunnel URL is temporary, changes each time `cloudflared` starts, and is public to anyone who knows it. An installed app is tied to that URL, so install it again when the URL changes.
+
 ## Verify
 
 ```sh
@@ -43,7 +65,7 @@ npm run preview
 
 The production build precaches the app shell and its assets. After `npm run preview` starts the built app, open it once while online, then reload it offline to use the drill.
 
-Chrome offers installation from its menu on desktop and Android. On iPhone, use Chrome's Share menu and choose **Add to Home Screen**.
+On desktop, Chrome offers installation from its menu.
 
 ## App icons
 
