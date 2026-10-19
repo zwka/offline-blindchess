@@ -16,7 +16,7 @@ export const SquareSchema = z.object({
 
 export type Square = z.infer<typeof SquareSchema>;
 export type SquareColor = "light" | "dark";
-export type SameColorAnswer = "same" | "different";
+export type PairRelation = "same" | "different";
 export type SquarePair = readonly [Square, Square];
 export type SameColorPrompt = SquarePair;
 export type DiagonalPrompt = SquarePair;
@@ -80,7 +80,7 @@ type SameColorSnapshot = {
   prompt: SameColorPrompt;
   correct: number;
   answered: number;
-  feedback: Feedback<SameColorAnswer> | null;
+  feedback: Feedback<PairRelation> | null;
 };
 
 type DiagonalsSnapshot = {
@@ -88,7 +88,7 @@ type DiagonalsSnapshot = {
   prompt: DiagonalPrompt;
   correct: number;
   answered: number;
-  feedback: Feedback<SameColorAnswer> | null;
+  feedback: Feedback<PairRelation> | null;
 };
 
 type CoordinatesSnapshot = {
@@ -174,13 +174,14 @@ export function sameDiagonal(first: Square, second: Square): boolean {
   return Math.abs(files.indexOf(first.file) - files.indexOf(second.file)) === Math.abs(first.rank - second.rank);
 }
 
-function promptsForDiagonalRelation(diagonal: boolean): DiagonalPrompt[] {
+function promptsForDiagonalRelation(relation: PairRelation): DiagonalPrompt[] {
   const prompts: DiagonalPrompt[] = [];
 
   for (let firstIndex = 0; firstIndex < 64; firstIndex += 1) {
     for (let secondIndex = firstIndex + 1; secondIndex < 64; secondIndex += 1) {
       const prompt: DiagonalPrompt = [squareAt(firstIndex), squareAt(secondIndex)];
-      if (sameDiagonal(prompt[0], prompt[1]) === diagonal) {
+      const promptRelation: PairRelation = sameDiagonal(prompt[0], prompt[1]) ? "same" : "different";
+      if (promptRelation === relation) {
         prompts.push(prompt);
       }
     }
@@ -190,12 +191,12 @@ function promptsForDiagonalRelation(diagonal: boolean): DiagonalPrompt[] {
 }
 
 const diagonalPrompts = {
-  same: promptsForDiagonalRelation(true),
-  different: promptsForDiagonalRelation(false)
-};
+  same: promptsForDiagonalRelation("same"),
+  different: promptsForDiagonalRelation("different")
+} satisfies Record<PairRelation, DiagonalPrompt[]>;
 
 export function randomDiagonalPrompt(random = Math.random): DiagonalPrompt {
-  const relation: SameColorAnswer = random() < 0.5 ? "same" : "different";
+  const relation: PairRelation = random() < 0.5 ? "same" : "different";
   const prompts = diagonalPrompts[relation];
   const prompt = prompts[randomIndex(random, prompts.length)];
   if (prompt === undefined) {
@@ -229,48 +230,13 @@ export function prepareRound(input: { training: "same-color"; prompt: SameColorP
 export function prepareRound(input: { training: "coordinates"; prompt: Square }): CoordinatesReadyRound;
 export function prepareRound(input: { training: "diagonals"; prompt: DiagonalPrompt }): DiagonalsReadyRound;
 export function prepareRound(input: RoundPrompt): ReadyRound {
-  switch (input.training) {
-    case "square-colors":
-      return {
-        kind: "ready",
-        training: input.training,
-        prompt: input.prompt,
-        correct: 0,
-        answered: 0,
-        feedback: null
-      };
-    case "same-color":
-      return {
-        kind: "ready",
-        training: input.training,
-        prompt: input.prompt,
-        correct: 0,
-        answered: 0,
-        feedback: null
-      };
-    case "coordinates":
-      return {
-        kind: "ready",
-        training: input.training,
-        prompt: input.prompt,
-        correct: 0,
-        answered: 0,
-        feedback: null
-      };
-    case "diagonals":
-      return {
-        kind: "ready",
-        training: input.training,
-        prompt: input.prompt,
-        correct: 0,
-        answered: 0,
-        feedback: null
-      };
-    default: {
-      const _exhaustive: never = input;
-      return _exhaustive;
-    }
-  }
+  return {
+    ...input,
+    kind: "ready",
+    correct: 0,
+    answered: 0,
+    feedback: null
+  };
 }
 
 export function remainingMs(state: RoundState, now: number): number {
@@ -310,52 +276,7 @@ export function startRoundClock(state: RoundState, now: number): RoundState {
     return state;
   }
 
-  switch (state.training) {
-    case "square-colors":
-      return {
-        kind: "running",
-        training: state.training,
-        prompt: state.prompt,
-        correct: state.correct,
-        answered: state.answered,
-        feedback: state.feedback,
-        endsAt: now + ATTEMPT_DURATION_MS
-      };
-    case "same-color":
-      return {
-        kind: "running",
-        training: state.training,
-        prompt: state.prompt,
-        correct: state.correct,
-        answered: state.answered,
-        feedback: state.feedback,
-        endsAt: now + ATTEMPT_DURATION_MS
-      };
-    case "coordinates":
-      return {
-        kind: "running",
-        training: state.training,
-        prompt: state.prompt,
-        correct: state.correct,
-        answered: state.answered,
-        feedback: state.feedback,
-        endsAt: now + ATTEMPT_DURATION_MS
-      };
-    case "diagonals":
-      return {
-        kind: "running",
-        training: state.training,
-        prompt: state.prompt,
-        correct: state.correct,
-        answered: state.answered,
-        feedback: state.feedback,
-        endsAt: now + ATTEMPT_DURATION_MS
-      };
-    default: {
-      const _exhaustive: never = state;
-      return _exhaustive;
-    }
-  }
+  return { ...state, kind: "running", endsAt: now + ATTEMPT_DURATION_MS };
 }
 
 export function answerRound(input: {
@@ -383,42 +304,22 @@ export function answerRound(input: {
   };
 }
 
-export function answerSameColorRound(input: {
-  state: SameColorRunningRound;
-  answer: SameColorAnswer;
+type PairRunningRound = SameColorRunningRound | DiagonalsRunningRound;
+
+export function answerPairRound(input: {
+  state: PairRunningRound;
+  answer: PairRelation;
   now: number;
-}): SameColorRunningRound {
+}): PairRunningRound {
   const { state } = input;
   if (state.feedback !== null || input.now >= state.endsAt) {
     return state;
   }
 
-  const expected: SameColorAnswer = sameColor(state.prompt[0], state.prompt[1]) ? "same" : "different";
-  const isCorrect = input.answer === expected;
-
-  return {
-    ...state,
-    answered: state.answered + 1,
-    correct: state.correct + Number(isCorrect),
-    feedback: {
-      kind: isCorrect ? "correct" : "incorrect",
-      picked: input.answer,
-      expected
-    }
-  };
-}
-
-export function answerDiagonalRound(input: {
-  state: DiagonalsRunningRound;
-  answer: SameColorAnswer;
-  now: number;
-}): DiagonalsRunningRound {
-  const { state } = input;
-  if (state.feedback !== null || input.now >= state.endsAt) {
-    return state;
-  }
-
-  const expected: SameColorAnswer = sameDiagonal(state.prompt[0], state.prompt[1]) ? "same" : "different";
+  const pairMatches = state.training === "same-color"
+    ? sameColor(state.prompt[0], state.prompt[1])
+    : sameDiagonal(state.prompt[0], state.prompt[1]);
+  const expected: PairRelation = pairMatches ? "same" : "different";
   const isCorrect = input.answer === expected;
 
   return {
@@ -466,21 +367,10 @@ export function advanceRound(state: SquareColorsRunningRound, nextPrompt: Square
   return { ...state, prompt: nextPrompt, feedback: null };
 }
 
-export function advanceSameColorRound(
-  state: SameColorRunningRound,
-  nextPrompt: SameColorPrompt
-): SameColorRunningRound {
-  if (state.feedback === null) {
-    return state;
-  }
-
-  return { ...state, prompt: nextPrompt, feedback: null };
-}
-
-export function advanceDiagonalRound(
-  state: DiagonalsRunningRound,
-  nextPrompt: DiagonalPrompt
-): DiagonalsRunningRound {
+export function advancePairRound(
+  state: PairRunningRound,
+  nextPrompt: SameColorPrompt | DiagonalPrompt
+): PairRunningRound {
   if (state.feedback === null) {
     return state;
   }
@@ -512,57 +402,13 @@ export function pauseRound(state: RoundState, now: number): RoundState {
     return state;
   }
 
-  const left = Math.max(0, state.endsAt - now);
+  const { endsAt, ...snapshot } = state;
+  const left = Math.max(0, endsAt - now);
   if (left === 0) {
     return state;
   }
 
-  switch (state.training) {
-    case "square-colors":
-      return {
-        kind: "paused",
-        training: state.training,
-        prompt: state.prompt,
-        correct: state.correct,
-        answered: state.answered,
-        feedback: state.feedback,
-        remainingMs: left
-      };
-    case "same-color":
-      return {
-        kind: "paused",
-        training: state.training,
-        prompt: state.prompt,
-        correct: state.correct,
-        answered: state.answered,
-        feedback: state.feedback,
-        remainingMs: left
-      };
-    case "coordinates":
-      return {
-        kind: "paused",
-        training: state.training,
-        prompt: state.prompt,
-        correct: state.correct,
-        answered: state.answered,
-        feedback: state.feedback,
-        remainingMs: left
-      };
-    case "diagonals":
-      return {
-        kind: "paused",
-        training: state.training,
-        prompt: state.prompt,
-        correct: state.correct,
-        answered: state.answered,
-        feedback: state.feedback,
-        remainingMs: left
-      };
-    default: {
-      const _exhaustive: never = state;
-      return _exhaustive;
-    }
-  }
+  return { ...snapshot, kind: "paused", remainingMs: left };
 }
 
 export function resumeRound(state: RoundState, now: number): RoundState {
@@ -570,52 +416,8 @@ export function resumeRound(state: RoundState, now: number): RoundState {
     return state;
   }
 
-  switch (state.training) {
-    case "square-colors":
-      return {
-        kind: "running",
-        training: state.training,
-        prompt: state.prompt,
-        correct: state.correct,
-        answered: state.answered,
-        feedback: state.feedback,
-        endsAt: now + state.remainingMs
-      };
-    case "same-color":
-      return {
-        kind: "running",
-        training: state.training,
-        prompt: state.prompt,
-        correct: state.correct,
-        answered: state.answered,
-        feedback: state.feedback,
-        endsAt: now + state.remainingMs
-      };
-    case "coordinates":
-      return {
-        kind: "running",
-        training: state.training,
-        prompt: state.prompt,
-        correct: state.correct,
-        answered: state.answered,
-        feedback: state.feedback,
-        endsAt: now + state.remainingMs
-      };
-    case "diagonals":
-      return {
-        kind: "running",
-        training: state.training,
-        prompt: state.prompt,
-        correct: state.correct,
-        answered: state.answered,
-        feedback: state.feedback,
-        endsAt: now + state.remainingMs
-      };
-    default: {
-      const _exhaustive: never = state;
-      return _exhaustive;
-    }
-  }
+  const { remainingMs: left, ...snapshot } = state;
+  return { ...snapshot, kind: "running", endsAt: now + left };
 }
 
 export function finishRound(input: {

@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import {
   ArrowLeft,
   ArrowRight,
@@ -16,12 +16,10 @@ import {
 } from "lucide-react";
 import {
   advanceCoordinatesRound,
-  advanceDiagonalRound,
-  advanceSameColorRound,
+  advancePairRound,
   advanceRound,
   answerCoordinatesRound,
-  answerDiagonalRound,
-  answerSameColorRound,
+  answerPairRound,
   answerRound,
   attemptsForTraining,
   finishRound,
@@ -35,27 +33,22 @@ import {
   resumeRound,
   sameSquare,
   squareColor,
-  startRoundClock
+  startRoundClock,
+  TrainingModuleSchema
 } from "./domain";
 import type {
   Attempt,
   CoordinatesFeedback,
+  PairRelation,
   ReadyRound,
   RoundState,
-  SameColorAnswer,
   Square,
   SquareColor,
   TrainingModule
 } from "./domain";
 import { clearAttemptHistory, readAttempts, saveAttempt } from "./storage";
-import {
-  applyTheme,
-  readSystemTheme,
-  readThemePreference,
-  saveThemePreference,
-  subscribeToSystemTheme
-} from "./preferences";
-import type { ResolvedTheme, ThemePreference } from "./preferences";
+import type { ThemePreference } from "./preferences";
+import { useThemePreference } from "./useThemePreference";
 
 interface BeforeInstallPromptEvent extends Event {
   prompt(): Promise<void>;
@@ -71,44 +64,37 @@ declare global {
 type Screen = "home" | "history" | "round" | "results";
 type AnswerSubmission =
   | { training: "square-colors"; answer: SquareColor }
-  | { training: "same-color"; answer: SameColorAnswer }
+  | { training: "same-color"; answer: PairRelation }
   | { training: "coordinates"; answer: Square }
-  | { training: "diagonals"; answer: SameColorAnswer };
+  | { training: "diagonals"; answer: PairRelation };
 
-const trainingModules: TrainingModule[] = ["square-colors", "same-color", "coordinates", "diagonals"];
+const trainingModules = TrainingModuleSchema.options;
+
+const trainingModuleMetadata = {
+  "square-colors": {
+    title: "Square Colors",
+    description: "Name the color of one square at a time"
+  },
+  "same-color": {
+    title: "Same Color",
+    description: "Compare the color of two squares"
+  },
+  coordinates: {
+    title: "Coordinates",
+    description: "Find the named square on the board"
+  },
+  diagonals: {
+    title: "Diagonals",
+    description: "Decide whether two squares share a diagonal"
+  }
+} satisfies Record<TrainingModule, { title: string; description: string }>;
 
 function trainingTitle(training: TrainingModule): string {
-  switch (training) {
-    case "square-colors":
-      return "Square Colors";
-    case "same-color":
-      return "Same Color";
-    case "coordinates":
-      return "Coordinates";
-    case "diagonals":
-      return "Diagonals";
-    default: {
-      const _exhaustive: never = training;
-      return _exhaustive;
-    }
-  }
+  return trainingModuleMetadata[training].title;
 }
 
 function trainingDescription(training: TrainingModule): string {
-  switch (training) {
-    case "square-colors":
-      return "Name the color of one square at a time";
-    case "same-color":
-      return "Compare the color of two squares";
-    case "coordinates":
-      return "Find the named square on the board";
-    case "diagonals":
-      return "Decide whether two squares share a diagonal";
-    default: {
-      const _exhaustive: never = training;
-      return _exhaustive;
-    }
-  }
+  return trainingModuleMetadata[training].description;
 }
 
 function BrandMark() {
@@ -284,8 +270,7 @@ function App() {
   const [round, setRound] = useState<RoundState>({ kind: "idle" });
   const roundRef = useRef(round);
   const [attempts, setAttempts] = useState<Attempt[]>(readAttempts);
-  const [themePreference, setThemePreference] = useState<ThemePreference>(readThemePreference);
-  const [systemTheme, setSystemTheme] = useState<ResolvedTheme>(readSystemTheme);
+  const { preference: themePreference, setPreference: selectTheme } = useThemePreference();
   const [secondsLeft, setSecondsLeft] = useState(60);
   const [ruleOpen, setRuleOpen] = useState(false);
   const [installHelpOpen, setInstallHelpOpen] = useState(false);
@@ -320,12 +305,6 @@ function App() {
     window.addEventListener("beforeinstallprompt", handleInstallPrompt);
     return () => window.removeEventListener("beforeinstallprompt", handleInstallPrompt);
   }, []);
-
-  useEffect(() => subscribeToSystemTheme(setSystemTheme), []);
-
-  useLayoutEffect(() => {
-    applyTheme(themePreference, systemTheme);
-  }, [themePreference, systemTheme]);
 
   useEffect(() => {
     const handleVisibility = () => {
@@ -389,11 +368,11 @@ function App() {
       if (current.training === "square-colors") {
         updateRound(advanceRound(current, randomSquare()));
       } else if (current.training === "same-color") {
-        updateRound(advanceSameColorRound(current, randomSameColorPrompt()));
+        updateRound(advancePairRound(current, randomSameColorPrompt()));
       } else if (current.training === "coordinates") {
         updateRound(advanceCoordinatesRound(current, randomSquare()));
       } else {
-        updateRound(advanceDiagonalRound(current, randomDiagonalPrompt()));
+        updateRound(advancePairRound(current, randomDiagonalPrompt()));
       }
     }, 430);
 
@@ -442,11 +421,6 @@ function App() {
     prepareAttempt(training);
   };
 
-  const selectTheme = (preference: ThemePreference) => {
-    setThemePreference(preference);
-    saveThemePreference(preference);
-  };
-
   const openHistory = (training: TrainingModule = historyTraining) => {
     setHistoryTraining(training);
     setScreen("history");
@@ -480,22 +454,17 @@ function App() {
         updateRound(answerRound({ state: running, answer: submission.answer, now }));
         break;
       case "same-color":
-        if (running.training !== "same-color") {
+      case "diagonals":
+        if (running.training !== submission.training) {
           return;
         }
-        updateRound(answerSameColorRound({ state: running, answer: submission.answer, now }));
+        updateRound(answerPairRound({ state: running, answer: submission.answer, now }));
         break;
       case "coordinates":
         if (running.training !== "coordinates") {
           return;
         }
         updateRound(answerCoordinatesRound({ state: running, answer: submission.answer, now }));
-        break;
-      case "diagonals":
-        if (running.training !== "diagonals") {
-          return;
-        }
-        updateRound(answerDiagonalRound({ state: running, answer: submission.answer, now }));
         break;
       default: {
         const _exhaustive: never = submission;

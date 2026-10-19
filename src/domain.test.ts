@@ -1,12 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
   advanceCoordinatesRound,
-  advanceDiagonalRound,
-  advanceSameColorRound,
+  advancePairRound,
   advanceRound,
   answerCoordinatesRound,
-  answerDiagonalRound,
-  answerSameColorRound,
+  answerPairRound,
   answerRound,
   attemptsForTraining,
   createAttempt,
@@ -119,8 +117,8 @@ describe("training domain", () => {
   it("scores same-color comparisons and advances to a new pair", () => {
     const ready = prepareRound({ training: "same-color", prompt: [a1, { file: "c", rank: 3 }] });
     const running = startRoundClock(ready, 100);
-    const answered = answerSameColorRound({ state: running, answer: "same", now: 100 });
-    const advanced = advanceSameColorRound(answered, [a1, { file: "b", rank: 1 }]);
+    const answered = answerPairRound({ state: running, answer: "same", now: 100 });
+    const advanced = advancePairRound(answered, [a1, { file: "b", rank: 1 }]);
 
     expect(answered).toMatchObject({
       kind: "running",
@@ -139,7 +137,7 @@ describe("training domain", () => {
   it("reveals the expected relation after an incorrect comparison", () => {
     const ready = prepareRound({ training: "same-color", prompt: [a1, { file: "b", rank: 1 }] });
     const running = startRoundClock(ready, 100);
-    const answered = answerSameColorRound({ state: running, answer: "same", now: 100 });
+    const answered = answerPairRound({ state: running, answer: "same", now: 100 });
 
     expect(answered).toMatchObject({
       correct: 0,
@@ -155,7 +153,7 @@ describe("training domain", () => {
     expect(remainingMs(ready, 90_000)).toBe(60_000);
 
     const started = startRoundClock(ready, 0);
-    const answered = answerDiagonalRound({ state: started, answer: "same", now: 0 });
+    const answered = answerPairRound({ state: started, answer: "same", now: 0 });
 
     expect(answered).toMatchObject({
       kind: "running",
@@ -165,7 +163,7 @@ describe("training domain", () => {
       answered: 1,
       feedback: { kind: "correct", expected: "same" }
     });
-    expect(answerDiagonalRound({ state: answered, answer: "different", now: 100 })).toBe(answered);
+    expect(answerPairRound({ state: answered, answer: "different", now: 100 })).toBe(answered);
 
     expect(finishRound({
       state: answered,
@@ -183,8 +181,8 @@ describe("training domain", () => {
     const nextPrompt: DiagonalPrompt = [a1, { file: "c", rank: 3 }];
     const ready = prepareRound({ training: "diagonals", prompt: firstPrompt });
     const started = startRoundClock(ready, 100);
-    const answered = answerDiagonalRound({ state: started, answer: "same", now: 100 });
-    const advanced = advanceDiagonalRound(answered, nextPrompt);
+    const answered = answerPairRound({ state: started, answer: "same", now: 100 });
+    const advanced = advancePairRound(answered, nextPrompt);
 
     expect(answered).toMatchObject({
       correct: 0,
@@ -198,7 +196,7 @@ describe("training domain", () => {
     const prompt: DiagonalPrompt = [a1, { file: "h", rank: 8 }];
     const ready = prepareRound({ training: "diagonals", prompt });
     const started = startRoundClock(ready, 1_000);
-    const answered = answerDiagonalRound({ state: started, answer: "same", now: 1_000 });
+    const answered = answerPairRound({ state: started, answer: "same", now: 1_000 });
     const paused = pauseRound(answered, 11_000);
     const resumed = resumeRound(paused, 90_000);
 
@@ -216,7 +214,7 @@ describe("training domain", () => {
     const prompt: SameColorPrompt = [a1, { file: "c", rank: 3 }];
     const ready = prepareRound({ training: "same-color", prompt });
     const started = startRoundClock(ready, 1_000);
-    const running = answerSameColorRound({ state: started, answer: "same", now: 1_000 });
+    const running = answerPairRound({ state: started, answer: "same", now: 1_000 });
     const paused = pauseRound(running, 11_000);
     const resumed = resumeRound(paused, 90_000);
 
@@ -250,7 +248,7 @@ describe("training domain", () => {
   it("tags a completed Same Color round with its training module", () => {
     const ready = prepareRound({ training: "same-color", prompt: [a1, { file: "c", rank: 3 }] });
     const started = startRoundClock(ready, 0);
-    const running = answerSameColorRound({ state: started, answer: "different", now: 0 });
+    const running = answerPairRound({ state: started, answer: "different", now: 0 });
     const completed = finishRound({
       state: running,
       now: 60_000,
