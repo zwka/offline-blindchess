@@ -5,6 +5,7 @@ def releaseKeyAlias = System.getenv('ANDROID_KEY_ALIAS')
 def releaseStorePassword = System.getenv('ANDROID_KEYSTORE_PASSWORD')
 def releaseKeyPassword = System.getenv('ANDROID_KEY_PASSWORD')
 def hasReleaseSigning = releaseStoreFile && releaseKeyAlias && releaseStorePassword && releaseKeyPassword
+def appVersionCode = (project.findProperty('versionCode') ?: '1').toString().toInteger()
 
 android {
     namespace "com.offlineblindchess.app"
@@ -13,7 +14,7 @@ android {
         applicationId "com.offlineblindchess.app"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 1
+        versionCode appVersionCode
         versionName "1.0"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {

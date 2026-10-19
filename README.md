@@ -37,28 +37,45 @@ npm run dev
 
 The Android app bundles the production web assets in a Capacitor shell. It launches without a network connection, and its Attempt History remains in the app's local WebView storage. Android 6.0 (API 23) or newer is required.
 
-Install Android Studio with the Android SDK and JDK 21, then install JavaScript dependencies and build the APK:
+Install Android Studio with the Android SDK and JDK 21, then install JavaScript dependencies:
 
 ```sh
-npm install
-npm run android:apk
+npm ci
 ```
 
-Release APKs require a signing key. Create it outside the repository and keep a backup; every update must use this same key and app identity:
+Create the release key outside the repository and keep a private backup. Android updates must use the same key and app identity:
 
 ```sh
-keytool -genkeypair -v -keystore "$HOME/offline-blind-chess-release.jks" \
+mkdir -p "$HOME/.android"
+keytool -genkeypair -v \
+  -storetype PKCS12 \
+  -keystore "$HOME/.android/offline-blind-chess-release.p12" \
   -keyalg RSA -keysize 2048 -validity 10000 -alias offline-blind-chess
-export ANDROID_KEYSTORE_PATH="$HOME/offline-blind-chess-release.jks"
-export ANDROID_KEY_ALIAS="offline-blind-chess"
-export ANDROID_KEYSTORE_PASSWORD="..."
-export ANDROID_KEY_PASSWORD="..."
-npm run android:apk
 ```
 
-The signed APK is `android/app/build/outputs/apk/release/app-release.apk`. Transfer it to the device over USB, Bluetooth, or another local method, then open it from the device's file manager. If Android asks, allow the file manager to install unknown apps for this installation. This grants permission to that source; do not disable device-wide security protections. For a temporary development build, `npm run android:apk:debug` produces a debug-signed APK that cannot update a release-signed installation.
+When `keytool` asks for the key password, press Enter to use the keystore password. Set the signing variables in the terminal you use for the release build. The password prompt does not echo the value:
 
-Keep `applicationId` in `android/app/build.gradle` and `appId` in `capacitor.config.ts` unchanged. Increase `versionCode` in `android/app/build.gradle` for every release. Keep the local HTTPS origin in `capacitor.config.ts` stable so WebView storage remains available across updates.
+```sh
+export ANDROID_KEYSTORE_PATH="$HOME/.android/offline-blind-chess-release.p12"
+export ANDROID_KEY_ALIAS="offline-blind-chess"
+printf 'Keystore password: '
+IFS= read -r -s ANDROID_KEYSTORE_PASSWORD
+printf '\n'
+export ANDROID_KEYSTORE_PASSWORD
+export ANDROID_KEY_PASSWORD="$ANDROID_KEYSTORE_PASSWORD"
+```
+
+Build the first signed APK with version code `1`:
+
+```sh
+npm run android:apk -- -PversionCode=1
+```
+
+The signed APK is `android/app/build/outputs/apk/release/app-release.apk`. The `versionCode` project property defaults to `1`, so the first release can also use `npm run android:apk` without the property. For every update, use a higher version code and the same signing key. For example, build version `2` with `npm run android:apk -- -PversionCode=2`.
+
+Keep `applicationId` in `android/app/build.gradle`, `appId` in `capacitor.config.ts`, and the local HTTPS origin in `capacitor.config.ts` unchanged. These values preserve the installed app identity and its WebView storage across updates. Gradle reads the signing key path, alias, and passwords from the terminal environment; do not put the key or passwords in the repository.
+
+Transfer the APK to the device over USB, Quick Share, Bluetooth, or a memory card, then open it from the receiving file manager. If Android asks, allow that file manager to install unknown apps. The permission applies only to that source app. Return to the APK and confirm the install. Do not disable device-wide security protections. A debug APK from `npm run android:apk:debug` uses a different signing key and cannot update a release installation.
 
 ## Install the Apple PWA
 
@@ -78,7 +95,7 @@ Start the tunnel in a second terminal:
 cloudflared tunnel --url http://127.0.0.1:4173 --http-host-header localhost
 ```
 
-Open the `https://` URL printed by `cloudflared` on the iPhone in Safari, tap **Share**, then choose **Add to Home Screen**. Keep both terminals open while installing or using the app online. The service worker caches the PWA after its first online visit. A Quick Tunnel URL is temporary and public to anyone who knows it; an installed PWA is tied to that URL, so install it again when the URL changes.
+For the first install, keep the iPhone online and keep both terminals running. Open the `https://` URL printed by `cloudflared` in Safari, tap **Share**, then choose **Add to Home Screen**. The service worker caches the PWA after its first online visit. A Quick Tunnel URL is temporary and public to anyone who knows it; an installed PWA is tied to that URL, so install it again when the URL changes.
 
 ## Verify
 
@@ -91,7 +108,19 @@ npm run build:android
 
 The build-target check verifies that the PWA keeps its manifest, install UI, and service-worker registration, while the Android assets exclude browser installation UI and service-worker startup. Both builds use the same training and device-local history code.
 
-With an emulator or device connected, `npm run android:test:device` checks the installed package identity. Also install the release APK with networking disabled, complete each drill, confirm Score and Accuracy and saved history, force-stop and relaunch, then install a newer signed APK over it to verify history survives updates.
+With an emulator or device connected, `npm run android:test:device` checks the installed package identity.
+
+### Verify an offline install and update
+
+Use an Android 6.0 or later device or emulator. Start with a clean app installation. Uninstall an existing test copy first, or create a fresh emulator profile. Uninstalling erases that app's local test data.
+
+1. Build the first APK with `npm run android:apk -- -PversionCode=1`, then transfer it to the device.
+2. Enable airplane mode and turn off Wi-Fi. Open the APK from the file manager and install it. If Android prompts you, allow **Install unknown apps** only for that file manager.
+3. Launch the app while offline. Complete a Training Module Attempt and confirm that it appears in Attempt History. Force-stop and reopen the app, then confirm that the Attempt remains.
+4. Build the update with the same signing key by running `npm run android:apk -- -PversionCode=2`. Transfer the new APK to the device without turning networking back on.
+5. Open the new APK from the same file manager and install it over the existing app. Launch the app offline and confirm that Attempt History and Personal Best remain.
+
+The successful in-place install verifies that the update has a higher `versionCode`, the same application identity, and a compatible signing key. Keep networking disabled through both installations and launches.
 
 ## App icons
 
