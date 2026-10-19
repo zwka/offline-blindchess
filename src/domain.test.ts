@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
   advanceCoordinatesRound,
+  advanceDiagonalRound,
   advanceSameColorRound,
   advanceRound,
   answerCoordinatesRound,
+  answerDiagonalRound,
   answerSameColorRound,
   answerRound,
   attemptsForTraining,
@@ -12,16 +14,18 @@ import {
   personalBestScore,
   pauseRound,
   prepareRound,
+  randomDiagonalPrompt,
   randomSameColorPrompt,
   randomSquare,
   remainingMs,
   resumeRound,
   sameColor,
+  sameDiagonal,
   sameSquare,
   squareColor,
   startRoundClock,
 } from "./domain";
-import type { SameColorPrompt, Square } from "./domain";
+import type { DiagonalPrompt, SameColorPrompt, Square } from "./domain";
 
 const a1: Square = { file: "a", rank: 1 };
 
@@ -41,6 +45,23 @@ describe("training domain", () => {
   it("compares square colors by parity", () => {
     expect(sameColor(a1, { file: "c", rank: 3 })).toBe(true);
     expect(sameColor(a1, { file: "b", rank: 1 })).toBe(false);
+  });
+
+  it("recognizes diagonal pairs in either direction and at any distance", () => {
+    expect(sameDiagonal(a1, { file: "h", rank: 8 })).toBe(true);
+    expect(sameDiagonal({ file: "h", rank: 8 }, a1)).toBe(true);
+    expect(sameDiagonal({ file: "c", rank: 3 }, { file: "f", rank: 6 })).toBe(true);
+    expect(sameDiagonal(a1, { file: "c", rank: 2 })).toBe(false);
+    expect(sameColor(a1, { file: "c", rank: 5 })).toBe(true);
+    expect(sameDiagonal(a1, { file: "c", rank: 5 })).toBe(false);
+  });
+
+  it("generates distinct diagonal and non-diagonal prompts with balanced answers", () => {
+    const values = [0, 0, 0.75, 0, 0.25, 0, 0.5, 0];
+    const prompts = Array.from({ length: 4 }, () => randomDiagonalPrompt(() => values.shift() ?? 0));
+
+    expect(prompts.map(([first, second]) => sameDiagonal(first, second))).toEqual([true, false, true, false]);
+    expect(prompts.every(([first, second]) => !sameSquare(first, second))).toBe(true);
   });
 
   it("generates two distinct squares for each comparison", () => {
@@ -125,6 +146,70 @@ describe("training domain", () => {
       answered: 1,
       feedback: { kind: "incorrect", picked: "same", expected: "different" }
     });
+  });
+
+  it("scores a Diagonals answer and records a module-specific attempt", () => {
+    const prompt: DiagonalPrompt = [a1, { file: "h", rank: 8 }];
+    const ready = prepareRound({ training: "diagonals", prompt });
+
+    expect(remainingMs(ready, 90_000)).toBe(60_000);
+
+    const started = startRoundClock(ready, 0);
+    const answered = answerDiagonalRound({ state: started, answer: "same", now: 0 });
+
+    expect(answered).toMatchObject({
+      kind: "running",
+      training: "diagonals",
+      endsAt: 60_000,
+      correct: 1,
+      answered: 1,
+      feedback: { kind: "correct", expected: "same" }
+    });
+    expect(answerDiagonalRound({ state: answered, answer: "different", now: 100 })).toBe(answered);
+
+    expect(finishRound({
+      state: answered,
+      now: 60_000,
+      id: "80db80fb-e633-41ed-82f2-2f1c586a50f3",
+      completedAt: "2026-10-20T12:00:00.000Z"
+    })).toMatchObject({
+      kind: "finished",
+      attempt: { training: "diagonals", score: 1, answered: 1, accuracy: 100 }
+    });
+  });
+
+  it("reveals the Diagonals answer after a wrong response and advances", () => {
+    const firstPrompt: DiagonalPrompt = [a1, { file: "b", rank: 1 }];
+    const nextPrompt: DiagonalPrompt = [a1, { file: "c", rank: 3 }];
+    const ready = prepareRound({ training: "diagonals", prompt: firstPrompt });
+    const started = startRoundClock(ready, 100);
+    const answered = answerDiagonalRound({ state: started, answer: "same", now: 100 });
+    const advanced = advanceDiagonalRound(answered, nextPrompt);
+
+    expect(answered).toMatchObject({
+      correct: 0,
+      answered: 1,
+      feedback: { kind: "incorrect", picked: "same", expected: "different" }
+    });
+    expect(advanced).toMatchObject({ kind: "running", prompt: nextPrompt, feedback: null });
+  });
+
+  it("pauses and resumes Diagonals without changing its prompt or feedback", () => {
+    const prompt: DiagonalPrompt = [a1, { file: "h", rank: 8 }];
+    const ready = prepareRound({ training: "diagonals", prompt });
+    const started = startRoundClock(ready, 1_000);
+    const answered = answerDiagonalRound({ state: started, answer: "same", now: 1_000 });
+    const paused = pauseRound(answered, 11_000);
+    const resumed = resumeRound(paused, 90_000);
+
+    expect(paused).toMatchObject({
+      kind: "paused",
+      training: "diagonals",
+      prompt,
+      remainingMs: 50_000,
+      feedback: { kind: "correct", expected: "same" }
+    });
+    expect(resumed).toMatchObject({ kind: "running", prompt, endsAt: 140_000 });
   });
 
   it("pauses and resumes a Same Color round without changing its prompt", () => {
@@ -251,12 +336,20 @@ describe("training domain", () => {
         training: "coordinates",
         score: 18,
         answered: 20
+      }),
+      createAttempt({
+        id: "fa46c387-9a54-4319-a227-2975ed078e2d",
+        completedAt: "2026-10-21T12:00:00.000Z",
+        training: "diagonals",
+        score: 7,
+        answered: 9
       })
     ];
 
     expect(personalBestScore(attempts, "square-colors")).toBe(12);
     expect(personalBestScore(attempts, "same-color")).toBe(9);
     expect(personalBestScore(attempts, "coordinates")).toBe(18);
+    expect(personalBestScore(attempts, "diagonals")).toBe(7);
     expect(personalBestScore([], "same-color")).toBeNull();
   });
 
@@ -282,11 +375,20 @@ describe("training domain", () => {
         training: "coordinates",
         score: 18,
         answered: 20
+      }),
+      createAttempt({
+        id: "fa46c387-9a54-4319-a227-2975ed078e2d",
+        completedAt: "2026-10-21T12:00:00.000Z",
+        training: "diagonals",
+        score: 7,
+        answered: 9
       })
     ];
 
     expect(attemptsForTraining(attempts, "coordinates").map(({ training, score }) => [training, score]))
       .toEqual([["coordinates", 18]]);
+    expect(attemptsForTraining(attempts, "diagonals").map(({ training, score }) => [training, score]))
+      .toEqual([["diagonals", 7]]);
     expect(attemptsForTraining(attempts, "square-colors").map(({ training, score }) => [training, score]))
       .toEqual([["square-colors", 12]]);
     expect(attemptsForTraining(attempts, "same-color").map(({ training, score }) => [training, score]))
