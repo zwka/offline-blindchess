@@ -11,7 +11,7 @@ export default defineConfig({
       manifest: {
         name: "Offline Blind Chess",
         short_name: "Blind Chess",
-        description: "Offline blindfold chess training, starting with Square Colors.",
+        description: "Offline blindfold chess training with Square Colors, Same Color, and Coordinates drills.",
         theme_color: "#f4f3ee",
         background_color: "#f4f3ee",
         display: "standalone",

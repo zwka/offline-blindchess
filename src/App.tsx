@@ -15,17 +15,35 @@ import {
   X
 } from "lucide-react";
 import {
+  advanceCoordinatesRound,
+  advanceSameColorRound,
   advanceRound,
+  answerCoordinatesRound,
+  answerSameColorRound,
   answerRound,
+  attemptsForTraining,
   finishRound,
+  personalBestScore,
   pauseRound,
+  prepareRound,
+  randomSameColorPrompt,
   randomSquare,
   remainingMs,
   resumeRound,
+  sameSquare,
   squareColor,
-  startRound
+  startRoundClock
 } from "./domain";
-import type { Attempt, RoundState, Square, SquareColor } from "./domain";
+import type {
+  Attempt,
+  CoordinatesFeedback,
+  ReadyRound,
+  RoundState,
+  SameColorAnswer,
+  Square,
+  SquareColor,
+  TrainingModule
+} from "./domain";
 import { clearAttemptHistory, readAttempts, saveAttempt } from "./storage";
 
 interface BeforeInstallPromptEvent extends Event {
@@ -40,6 +58,42 @@ declare global {
 }
 
 type Screen = "home" | "history" | "round" | "results";
+type AnswerSubmission =
+  | { training: "square-colors"; answer: SquareColor }
+  | { training: "same-color"; answer: SameColorAnswer }
+  | { training: "coordinates"; answer: Square };
+
+const trainingModules: TrainingModule[] = ["square-colors", "same-color", "coordinates"];
+
+function trainingTitle(training: TrainingModule): string {
+  switch (training) {
+    case "square-colors":
+      return "Square Colors";
+    case "same-color":
+      return "Same Color";
+    case "coordinates":
+      return "Coordinates";
+    default: {
+      const _exhaustive: never = training;
+      return _exhaustive;
+    }
+  }
+}
+
+function trainingDescription(training: TrainingModule): string {
+  switch (training) {
+    case "square-colors":
+      return "Name the color of one square at a time";
+    case "same-color":
+      return "Compare the color of two squares";
+    case "coordinates":
+      return "Find the named square on the board";
+    default: {
+      const _exhaustive: never = training;
+      return _exhaustive;
+    }
+  }
+}
 
 function BrandMark() {
   return (
@@ -51,14 +105,21 @@ function BrandMark() {
   );
 }
 
-function SquareBoard() {
+function SquareBoard({
+  anchors = ["a1"],
+  label = "Chessboard with a1 marked as a dark square"
+}: {
+  anchors?: string[];
+  label?: string;
+}) {
   const files: Square["file"][] = ["a", "b", "c", "d", "e", "f", "g", "h"];
   const squares = [8, 7, 6, 5, 4, 3, 2, 1].flatMap((rank) =>
     files.map((file) => ({ file, rank }))
   );
+  const anchorSet = new Set(anchors);
 
   return (
-    <div className="board-frame" role="img" aria-label="Chessboard with a1 marked as a dark square">
+    <div className="board-frame" role="img" aria-label={label}>
       <div className="board-grid">
         {squares.map((square) => {
           const name = `${square.file}${square.rank}`;
@@ -68,13 +129,53 @@ function SquareBoard() {
               className={`board-square board-square--${squareColor(square)}`}
               aria-hidden="true"
             >
-              {name === "a1" && <span className="board-anchor">a1</span>}
+              {anchorSet.has(name) && <span className="board-anchor">{name}</span>}
             </span>
           );
         })}
       </div>
       <div className="board-files" aria-hidden="true">
         {files.map((file) => <span key={file}>{file}</span>)}
+      </div>
+    </div>
+  );
+}
+
+function CoordinateBoard({
+  feedback,
+  disabled,
+  onSelect
+}: {
+  feedback: CoordinatesFeedback | null;
+  disabled: boolean;
+  onSelect: (square: Square) => void;
+}) {
+  const files: Square["file"][] = ["a", "b", "c", "d", "e", "f", "g", "h"];
+  const squares = [8, 7, 6, 5, 4, 3, 2, 1].flatMap((rank) =>
+    files.map((file) => ({ file, rank }))
+  );
+
+  return (
+    <div className="coordinate-board-frame">
+      <div className="coordinate-board" role="group" aria-label="Select the square named in the question">
+        {squares.map((square) => {
+          const name = `${square.file}${square.rank}`;
+          const isExpected = feedback !== null && sameSquare(square, feedback.expected);
+          const isIncorrectPick = feedback?.kind === "incorrect" && sameSquare(square, feedback.picked);
+
+          return (
+            <button
+              className={`board-square board-square--${squareColor(square)} coordinate-square${isExpected ? " coordinate-square--expected" : ""}${isIncorrectPick ? " coordinate-square--picked-incorrect" : ""}`}
+              type="button"
+              key={name}
+              aria-label={`Select square ${name}`}
+              tabIndex={-1}
+              disabled={disabled}
+              onKeyDown={(event) => event.preventDefault()}
+              onClick={() => onSelect(square)}
+            />
+          );
+        })}
       </div>
     </div>
   );
@@ -127,15 +228,16 @@ function formatDate(value: string): string {
   }).format(new Date(value));
 }
 
-function PersonalBest({ attempts }: { attempts: Attempt[] }) {
-  const best = attempts.reduce<number | null>((highest, attempt) =>
-    highest === null ? attempt.score : Math.max(highest, attempt.score), null);
+function PersonalBest({ attempts, training }: { attempts: Attempt[]; training: TrainingModule }) {
+  const best = personalBestScore(attempts, training);
 
   return <>{best === null ? "--" : best}</>;
 }
 
 function App() {
   const [screen, setScreen] = useState<Screen>("home");
+  const [selectedTraining, setSelectedTraining] = useState<TrainingModule>("square-colors");
+  const [historyTraining, setHistoryTraining] = useState<TrainingModule>("square-colors");
   const [round, setRound] = useState<RoundState>({ kind: "idle" });
   const roundRef = useRef(round);
   const [attempts, setAttempts] = useState<Attempt[]>(readAttempts);
@@ -229,7 +331,17 @@ function App() {
 
     const timeout = window.setTimeout(() => {
       const current = roundRef.current;
-      updateRound(advanceRound(current, randomSquare()));
+      if (current.kind !== "running") {
+        return;
+      }
+
+      if (current.training === "square-colors") {
+        updateRound(advanceRound(current, randomSquare()));
+      } else if (current.training === "same-color") {
+        updateRound(advanceSameColorRound(current, randomSameColorPrompt()));
+      } else {
+        updateRound(advanceCoordinatesRound(current, randomSquare()));
+      }
     }, 430);
 
     return () => window.clearTimeout(timeout);
@@ -245,27 +357,84 @@ function App() {
     setStorageError(!saved.saved);
   }, [round]);
 
-  const startAttempt = () => {
-    const started = startRound({ now: Date.now(), prompt: randomSquare() });
-    updateRound(started);
+  const prepareAttempt = (training: TrainingModule) => {
+    setSelectedTraining(training);
+    let ready: ReadyRound;
+    switch (training) {
+      case "square-colors":
+        ready = prepareRound({ training, prompt: randomSquare() });
+        break;
+      case "same-color":
+        ready = prepareRound({ training, prompt: randomSameColorPrompt() });
+        break;
+      case "coordinates":
+        ready = prepareRound({ training, prompt: randomSquare() });
+        break;
+      default: {
+        const _exhaustive: never = training;
+        return _exhaustive;
+      }
+    }
+
+    updateRound(ready);
     setSecondsLeft(60);
     setStorageError(false);
     setScreen("round");
   };
 
-  const submitAnswer = (answer: SquareColor) => {
+  const selectTraining = (training: TrainingModule) => {
+    prepareAttempt(training);
+  };
+
+  const openHistory = (training: TrainingModule = historyTraining) => {
+    setHistoryTraining(training);
+    setScreen("history");
+  };
+
+  const submitAnswer = (submission: AnswerSubmission) => {
     const current = roundRef.current;
-    if (current.kind !== "running") {
+    if (
+      (current.kind !== "ready" && current.kind !== "running") ||
+      current.training !== submission.training
+    ) {
       return;
     }
 
     const now = Date.now();
-    if (remainingMs(current, now) === 0) {
+    if (current.kind === "running" && remainingMs(current, now) === 0) {
       finishExpiredAttempt(current, now);
       return;
     }
 
-    updateRound(answerRound({ state: current, answer, now }));
+    const running = startRoundClock(current, now);
+    if (running.kind !== "running") {
+      return;
+    }
+
+    switch (submission.training) {
+      case "square-colors":
+        if (running.training !== "square-colors") {
+          return;
+        }
+        updateRound(answerRound({ state: running, answer: submission.answer, now }));
+        break;
+      case "same-color":
+        if (running.training !== "same-color") {
+          return;
+        }
+        updateRound(answerSameColorRound({ state: running, answer: submission.answer, now }));
+        break;
+      case "coordinates":
+        if (running.training !== "coordinates") {
+          return;
+        }
+        updateRound(answerCoordinatesRound({ state: running, answer: submission.answer, now }));
+        break;
+      default: {
+        const _exhaustive: never = submission;
+        return _exhaustive;
+      }
+    }
   };
 
   useEffect(() => {
@@ -274,12 +443,21 @@ function App() {
         return;
       }
 
+      const current = roundRef.current;
+      if ((current.kind !== "ready" && current.kind !== "running") || current.training === "coordinates") {
+        return;
+      }
+
       if (event.key === "ArrowLeft") {
         event.preventDefault();
-        submitAnswer("light");
+        submitAnswer(current.training === "square-colors"
+          ? { training: "square-colors", answer: "light" }
+          : { training: "same-color", answer: "different" });
       } else if (event.key === "ArrowRight") {
         event.preventDefault();
-        submitAnswer("dark");
+        submitAnswer(current.training === "square-colors"
+          ? { training: "square-colors", answer: "dark" }
+          : { training: "same-color", answer: "same" });
       }
     };
 
@@ -312,11 +490,17 @@ function App() {
   };
 
   const leaveRound = () => {
-    if (roundRef.current.kind === "running" || roundRef.current.kind === "paused") {
+    if (
+      roundRef.current.kind === "ready" ||
+      roundRef.current.kind === "running" ||
+      roundRef.current.kind === "paused"
+    ) {
       updateRound({ kind: "idle" });
     }
     setScreen("home");
   };
+
+  const historyAttempts = attemptsForTraining(attempts, historyTraining);
 
   return (
     <div className="app-shell">
@@ -330,13 +514,13 @@ function App() {
             <button className="text-button" type="button" onClick={leaveRound}>
               <ArrowLeft size={17} /> <span>Exit</span>
             </button>
-          ) : screen === "history" || screen === "results" ? (
-            <button className="text-button" type="button" onClick={() => setScreen("home")}>
-              <House size={17} /> <span>Home</span>
+          ) : screen === "home" ? (
+            <button className="text-button" type="button" onClick={() => openHistory()}>
+              <HistoryIcon size={17} /> <span>History</span>
             </button>
           ) : (
-            <button className="text-button" type="button" onClick={() => setScreen("history")}>
-              <HistoryIcon size={17} /> <span>History</span>
+            <button className="text-button" type="button" onClick={() => setScreen("home")}>
+              <House size={17} /> <span>Home</span>
             </button>
           )}
           <button className="install-button" type="button" onClick={() => void installApp()}>
@@ -346,39 +530,41 @@ function App() {
       </header>
 
       {screen === "home" && (
-        <main className="home-page page-width">
-          <section className="home-copy" aria-labelledby="home-title">
-            <p className="eyebrow"><span className="eyebrow-dot" /> FOUNDATIONS <span>01</span></p>
-            <h1 id="home-title">Square<br />Colors</h1>
-            <div className="home-rule">
-              <span className="section-label">THE RULE</span>
-              <p><strong>a1 is dark.</strong> Every step to a neighboring square changes its color.</p>
-              <button className="inline-link" type="button" onClick={() => setRuleOpen(true)}>
-                <BookOpen size={16} /> Full rule
-              </button>
-            </div>
-            <button className="primary-button start-button" type="button" onClick={startAttempt}>
-              <Play size={18} fill="currentColor" /> Start <span className="button-detail">60 sec</span>
-            </button>
-            <div className="home-stats" aria-label="Your Square Colors results">
-              <div><span className="section-label">PERSONAL BEST</span><strong><PersonalBest attempts={attempts} /></strong></div>
-              <div><span className="section-label">ATTEMPTS</span><strong>{attempts.length}</strong></div>
-            </div>
-          </section>
+        <main className="training-hub page-width">
+          <header className="training-hub-heading">
+            <p className="eyebrow"><span className="eyebrow-dot" /> FOUNDATIONS <span>3 DRILLS</span></p>
+            <h1>Choose a drill</h1>
+          </header>
+          <section className="training-options" aria-label="Training modules">
+            {trainingModules.map((training, index) => {
+              const moduleAttempts = attempts.filter((attempt) => attempt.training === training);
 
-          <aside className="home-visual" aria-label="Square color reference">
-            <div className="board-caption"><span>CHESSBOARD</span><span>8 × 8</span></div>
-            <SquareBoard />
-            <p className="visual-note"><span className="dark-swatch" /> <span>a1 anchors the pattern</span></p>
-            <button className="home-history-link" type="button" onClick={() => setScreen("history")}>
-              <HistoryIcon size={17} /> Review attempts <span>{attempts.length}</span>
-            </button>
-          </aside>
+              return (
+                <button
+                  className="training-option"
+                  type="button"
+                  key={training}
+                  onClick={() => selectTraining(training)}
+                >
+                  <span className="training-option-index">0{index + 1}</span>
+                  <span className="training-option-copy">
+                    <strong>{trainingTitle(training)}</strong>
+                    <span>{trainingDescription(training)}</span>
+                  </span>
+                  <span className="training-option-stats">
+                    <span><span className="section-label">PERSONAL BEST</span><strong><PersonalBest attempts={attempts} training={training} /></strong></span>
+                    <span><span className="section-label">ATTEMPTS</span><strong>{moduleAttempts.length}</strong></span>
+                  </span>
+                  <ArrowRight size={19} aria-hidden="true" />
+                </button>
+              );
+            })}
+          </section>
         </main>
       )}
 
       {screen === "round" && round.kind !== "idle" && round.kind !== "finished" && (
-        <main className="round-page page-width">
+        <main className={`round-page page-width${round.training === "coordinates" ? " coordinate-round-page" : ""}`}>
           <div className="round-topline">
             <div className="round-progress" role="progressbar" aria-label="Time remaining" aria-valuemin={0} aria-valuemax={60} aria-valuenow={secondsLeft}>
               <span style={{ width: `${(secondsLeft / 60) * 100}%` }} />
@@ -389,26 +575,73 @@ function App() {
             </div>
           </div>
 
-          <section className="question-zone" aria-label="Square color question">
-            <p className="question-kicker">WHAT COLOR IS THIS SQUARE?</p>
-            <div className="coordinate" aria-live="polite" aria-atomic="true">{round.prompt.file}{round.prompt.rank}</div>
+          <section
+            className={`question-zone${round.training === "coordinates" ? " coordinate-question-zone" : ""}`}
+            aria-label={
+              round.training === "square-colors" ? "Square color question" :
+                round.training === "same-color" ? "Same color question" : "Coordinates question"
+            }
+          >
+            <p className="question-kicker">
+              {round.training === "square-colors" ? "WHAT COLOR IS THIS SQUARE?" :
+                round.training === "same-color" ? "DO THESE SQUARES SHARE A COLOR?" : "FIND THIS SQUARE"}
+            </p>
+            {round.training === "same-color" ? (
+              <div className="coordinate-pair" aria-live="polite" aria-atomic="true">
+                <span className="coordinate">{round.prompt[0].file}{round.prompt[0].rank}</span>
+                <span className="coordinate-pair-divider" aria-hidden="true">?</span>
+                <span className="coordinate">{round.prompt[1].file}{round.prompt[1].rank}</span>
+              </div>
+            ) : (
+              <div className="coordinate" aria-live="polite" aria-atomic="true">{round.prompt.file}{round.prompt.rank}</div>
+            )}
             <div className={`answer-feedback${round.feedback ? ` answer-feedback--${round.feedback.kind}` : ""}`} role="status" aria-live="polite">
               {round.feedback?.kind === "correct" ? (
                 <><Check size={17} /> Correct</>
               ) : round.feedback?.kind === "incorrect" ? (
-                <><X size={17} /> {`It is ${round.feedback.expected}`}</>
+                <>
+                  <X size={17} />
+                  {round.training === "square-colors" ? `It is ${round.feedback.expected}` :
+                    round.training === "same-color"
+                      ? round.feedback.expected === "same" ? "They are the same color" : "They are different colors"
+                      : `That square is ${round.feedback.expected.file}${round.feedback.expected.rank}`}
+                </>
               ) : <span aria-hidden="true">&nbsp;</span>}
             </div>
           </section>
 
-          <div className="answer-controls" aria-label="Choose square color">
-            <button className="answer-button answer-button--light" type="button" onClick={() => submitAnswer("light")} disabled={round.feedback !== null}>
-              <ArrowLeft className="answer-direction" size={19} aria-hidden="true" /> Light
-            </button>
-            <button className="answer-button answer-button--dark" type="button" onClick={() => submitAnswer("dark")} disabled={round.feedback !== null}>
-              <ArrowRight className="answer-direction" size={19} aria-hidden="true" /> Dark
-            </button>
-          </div>
+          {round.training === "coordinates" ? (
+            <CoordinateBoard
+              feedback={round.feedback}
+              disabled={round.feedback !== null || round.kind === "paused"}
+              onSelect={(square) => submitAnswer({ training: "coordinates", answer: square })}
+            />
+          ) : (
+            <div className="answer-controls" aria-label={round.training === "square-colors" ? "Choose square color" : "Choose whether the squares share a color"}>
+              <button
+                className="answer-button answer-button--light"
+                type="button"
+                onClick={() => submitAnswer(round.training === "square-colors"
+                  ? { training: "square-colors", answer: "light" }
+                  : { training: "same-color", answer: "different" })}
+                disabled={round.feedback !== null || round.kind === "paused"}
+              >
+                <ArrowLeft className="answer-direction" size={19} aria-hidden="true" />
+                {round.training === "square-colors" ? "Light" : "Different"}
+              </button>
+              <button
+                className="answer-button answer-button--dark"
+                type="button"
+                onClick={() => submitAnswer(round.training === "square-colors"
+                  ? { training: "square-colors", answer: "dark" }
+                  : { training: "same-color", answer: "same" })}
+                disabled={round.feedback !== null || round.kind === "paused"}
+              >
+                <ArrowRight className="answer-direction" size={19} aria-hidden="true" />
+                {round.training === "square-colors" ? "Dark" : "Same"}
+              </button>
+            </div>
+          )}
         </main>
       )}
 
@@ -416,19 +649,19 @@ function App() {
         <main className="results-page page-width">
           <div className="results-heading">
             <span className="results-icon"><Trophy size={24} /></span>
-            <p className="eyebrow">ATTEMPT COMPLETE</p>
+            <p className="eyebrow">{trainingTitle(round.attempt.training).toUpperCase()} COMPLETE</p>
             <h1>Good work.</h1>
             <p className="results-score"><strong>{round.attempt.score}</strong><span>correct</span></p>
           </div>
           <div className="results-stats">
             <div><span className="section-label">ACCURACY</span><strong>{formatAccuracy(round.attempt.accuracy)}</strong></div>
             <div><span className="section-label">ANSWERED</span><strong>{round.attempt.answered}</strong></div>
-            <div><span className="section-label">PERSONAL BEST</span><strong><PersonalBest attempts={attempts} /></strong></div>
+            <div><span className="section-label">PERSONAL BEST</span><strong><PersonalBest attempts={attempts} training={round.attempt.training} /></strong></div>
           </div>
           {storageError && <p className="storage-warning" role="alert">This attempt could not be saved on this device.</p>}
           <div className="result-actions">
-            <button className="primary-button" type="button" onClick={startAttempt}><RotateCcw size={17} /> Play again</button>
-            <button className="secondary-button" type="button" onClick={() => setScreen("history")}><HistoryIcon size={17} /> History</button>
+            <button className="primary-button" type="button" onClick={() => prepareAttempt(round.attempt.training)}><RotateCcw size={17} /> Play again</button>
+            <button className="secondary-button" type="button" onClick={() => openHistory(round.attempt.training)}><HistoryIcon size={17} /> History</button>
           </div>
           <button className="inline-link result-home-link" type="button" onClick={() => setScreen("home")}>
             <House size={16} /> Home
@@ -443,28 +676,43 @@ function App() {
               <p className="eyebrow"><span className="eyebrow-dot" /> PRACTICE LOG</p>
               <h1>Attempt history</h1>
             </div>
-            <button className="primary-button history-start" type="button" onClick={startAttempt}><Play size={17} fill="currentColor" /> Start</button>
           </div>
 
-          <section className="best-strip" aria-label="Personal best score">
+          <nav className="history-tabs" aria-label="Training module history">
+            {trainingModules.map((training) => (
+              <button
+                className={`history-tab${historyTraining === training ? " history-tab--selected" : ""}`}
+                type="button"
+                key={training}
+                aria-pressed={historyTraining === training}
+                onClick={() => setHistoryTraining(training)}
+              >
+                {trainingTitle(training)}
+              </button>
+            ))}
+          </nav>
+
+          <section className="best-strip" aria-label={`${trainingTitle(historyTraining)} personal best`}>
             <Trophy size={19} />
-            <span className="section-label">PERSONAL BEST</span>
-            <strong><PersonalBest attempts={attempts} /></strong>
+            <span className="section-label">{trainingTitle(historyTraining).toUpperCase()} PERSONAL BEST</span>
+            <strong><PersonalBest attempts={attempts} training={historyTraining} /></strong>
           </section>
 
-          {attempts.length === 0 ? (
+          {historyAttempts.length === 0 ? (
             <div className="empty-history">
               <div className="empty-mark"><HistoryIcon size={22} /></div>
-              <h2>No attempts yet</h2>
-              <button className="inline-link" type="button" onClick={startAttempt}><Play size={16} fill="currentColor" /> Start Square Colors</button>
+              <h2>No {trainingTitle(historyTraining)} attempts yet</h2>
+              <button className="inline-link" type="button" onClick={() => prepareAttempt(historyTraining)}>
+                <Play size={16} fill="currentColor" /> Start {trainingTitle(historyTraining)}
+              </button>
             </div>
           ) : (
             <>
-              <div className="history-list" role="table" aria-label="Completed attempts">
+              <div className="history-list" role="table" aria-label={`Completed ${trainingTitle(historyTraining)} attempts`}>
                 <div className="history-row history-row--head" role="row">
                   <span role="columnheader">COMPLETED</span><span role="columnheader">SCORE</span><span role="columnheader">ACCURACY</span><span role="columnheader">ANSWERED</span>
                 </div>
-                {attempts.map((attempt) => (
+                {historyAttempts.map((attempt) => (
                   <div className="history-row" role="row" key={attempt.id}>
                     <span role="cell">{formatDate(attempt.completedAt)}</span>
                     <strong role="cell">{attempt.score}</strong>
@@ -474,8 +722,8 @@ function App() {
                 ))}
               </div>
               <div className="history-footer">
-                <span>{attempts.length} {attempts.length === 1 ? "attempt" : "attempts"}</span>
-                <button className="clear-button" type="button" onClick={clearHistory}><Trash2 size={15} /> Clear history</button>
+                <span>{historyAttempts.length} {historyAttempts.length === 1 ? "attempt" : "attempts"}</span>
+                <button className="clear-button" type="button" onClick={clearHistory}><Trash2 size={15} /> Clear all history</button>
               </div>
             </>
           )}
@@ -485,18 +733,40 @@ function App() {
 
       <footer className="app-footer page-width">
         <span>OFFLINE BLIND CHESS</span>
-        <button className="footer-rule" type="button" onClick={() => setRuleOpen(true)}><BookOpen size={14} /> Square color rule</button>
+        {screen === "round" && (
+          <button className="footer-rule" type="button" onClick={() => setRuleOpen(true)}>
+            <BookOpen size={14} /> {trainingTitle(selectedTraining)} rule
+          </button>
+        )}
       </footer>
 
       {ruleOpen && (
-        <Dialog title="Square color rule" onClose={() => setRuleOpen(false)}>
-          <div className="rule-dialog-content">
-            <SquareBoard />
-            <div className="rule-detail">
-              <p><strong>a1 is dark.</strong> Moving one square along a rank or file changes the color. Moving diagonally keeps the same color.</p>
-              <p>For a check, number files <strong>a–h</strong> as <strong>1–8</strong> and add the rank. An even sum is dark; an odd sum is light.</p>
+        <Dialog
+          title={`${trainingTitle(selectedTraining)} rule`}
+          onClose={() => setRuleOpen(false)}
+        >
+          {selectedTraining === "square-colors" ? (
+            <div className="rule-dialog-content">
+              <SquareBoard />
+              <div className="rule-detail">
+                <p><strong>a1 is dark.</strong> Moving one square along a rank or file changes the color. Moving diagonally keeps the same color.</p>
+                <p>For a check, number files <strong>a–h</strong> as <strong>1–8</strong> and add the rank. An even sum is dark; an odd sum is light.</p>
+              </div>
             </div>
-          </div>
+          ) : selectedTraining === "same-color" ? (
+            <div className="rule-dialog-content">
+              <SquareBoard anchors={["a1", "c3"]} label="Chessboard with a1 and c3 marked as dark squares" />
+              <div className="rule-detail">
+                <p><strong>a1 and c3 are both dark.</strong> Two squares share a color when their file-plus-rank totals have the same parity.</p>
+                <p>For example, a1 and c3 match, while a1 and b1 differ. A diagonal step changes both file and rank, so it stays on the same color.</p>
+              </div>
+            </div>
+          ) : (
+            <div className="rule-detail coordinate-rule-detail">
+              <p>Files run from left to right. Ranks run from bottom to top.</p>
+              <p>Use the coordinate in the question to locate its square on the board.</p>
+            </div>
+          )}
         </Dialog>
       )}
 

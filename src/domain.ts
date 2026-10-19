@@ -1,6 +1,9 @@
 import { z } from "zod";
 
 export const ATTEMPT_DURATION_MS = 60_000;
+export const TrainingModuleSchema = z.enum(["square-colors", "same-color", "coordinates"]);
+
+export type TrainingModule = z.infer<typeof TrainingModuleSchema>;
 
 const files = ["a", "b", "c", "d", "e", "f", "g", "h"] as const;
 const FileSchema = z.enum(files);
@@ -13,11 +16,19 @@ export const SquareSchema = z.object({
 
 export type Square = z.infer<typeof SquareSchema>;
 export type SquareColor = "light" | "dark";
+export type SameColorAnswer = "same" | "different";
+export type SameColorPrompt = readonly [Square, Square];
+export type CoordinatesFeedback = {
+  kind: "correct" | "incorrect";
+  picked: Square;
+  expected: Square;
+};
 
 export const AttemptSchema = z
   .object({
     id: z.string().uuid().brand<"AttemptId">(),
     completedAt: z.string().datetime(),
+    training: TrainingModuleSchema.default("square-colors"),
     score: z.number().int().nonnegative(),
     answered: z.number().int().nonnegative(),
     accuracy: z.number().min(0).max(100).nullable()
@@ -38,22 +49,82 @@ export const AttemptSchema = z
 
 export type Attempt = z.infer<typeof AttemptSchema>;
 
-type Feedback =
-  | { kind: "correct"; picked: SquareColor; expected: SquareColor }
-  | { kind: "incorrect"; picked: SquareColor; expected: SquareColor };
+export function attemptsForTraining(attempts: readonly Attempt[], training: TrainingModule): Attempt[] {
+  return attempts.filter((attempt) => attempt.training === training);
+}
 
-type RoundSnapshot = {
+export function personalBestScore(attempts: readonly Attempt[], training: TrainingModule): number | null {
+  return attemptsForTraining(attempts, training)
+    .reduce<number | null>((highest, attempt) =>
+      highest === null ? attempt.score : Math.max(highest, attempt.score), null);
+}
+
+type Feedback<Answer> = {
+  kind: "correct" | "incorrect";
+  picked: Answer;
+  expected: Answer;
+};
+
+type SquareColorsSnapshot = {
+  training: "square-colors";
   prompt: Square;
   correct: number;
   answered: number;
-  feedback: Feedback | null;
+  feedback: Feedback<SquareColor> | null;
 };
+
+type SameColorSnapshot = {
+  training: "same-color";
+  prompt: SameColorPrompt;
+  correct: number;
+  answered: number;
+  feedback: Feedback<SameColorAnswer> | null;
+};
+
+type CoordinatesSnapshot = {
+  training: "coordinates";
+  prompt: Square;
+  correct: number;
+  answered: number;
+  feedback: CoordinatesFeedback | null;
+};
+
+type RoundSnapshot = SquareColorsSnapshot | SameColorSnapshot | CoordinatesSnapshot;
+
+type ReadyRoundFor<Snapshot> = Snapshot extends RoundSnapshot
+  ? Omit<Snapshot, "correct" | "answered" | "feedback"> & {
+      kind: "ready";
+      correct: 0;
+      answered: 0;
+      feedback: null;
+    }
+  : never;
+
+type RunningRoundFor<Snapshot> = Snapshot extends RoundSnapshot
+  ? Snapshot & { kind: "running"; endsAt: number }
+  : never;
+
+type PausedRoundFor<Snapshot> = Snapshot extends RoundSnapshot
+  ? Snapshot & { kind: "paused"; remainingMs: number }
+  : never;
+
+export type ReadyRound = ReadyRoundFor<RoundSnapshot>;
+export type RunningRound = RunningRoundFor<RoundSnapshot>;
+export type PausedRound = PausedRoundFor<RoundSnapshot>;
 
 export type RoundState =
   | { kind: "idle" }
-  | (RoundSnapshot & { kind: "running"; endsAt: number })
-  | (RoundSnapshot & { kind: "paused"; remainingMs: number })
+  | ReadyRound
+  | RunningRound
+  | PausedRound
   | { kind: "finished"; attempt: Attempt };
+
+type SquareColorsReadyRound = Extract<ReadyRound, { training: "square-colors" }>;
+type SameColorReadyRound = Extract<ReadyRound, { training: "same-color" }>;
+type CoordinatesReadyRound = Extract<ReadyRound, { training: "coordinates" }>;
+type SquareColorsRunningRound = Extract<RunningRound, { training: "square-colors" }>;
+type SameColorRunningRound = Extract<RunningRound, { training: "same-color" }>;
+type CoordinatesRunningRound = Extract<RunningRound, { training: "coordinates" }>;
 
 export function squareColor(square: Square): SquareColor {
   const fileNumber = files.indexOf(square.file) + 1;
@@ -61,7 +132,22 @@ export function squareColor(square: Square): SquareColor {
 }
 
 export function randomSquare(random = Math.random): Square {
-  const index = Math.max(0, Math.min(63, Math.floor(random() * 64)));
+  return squareAt(randomIndex(random, 64));
+}
+
+export function randomSameColorPrompt(random = Math.random): SameColorPrompt {
+  const firstIndex = randomIndex(random, 64);
+  const secondIndex = randomIndex(random, 63);
+  const distinctSecondIndex = secondIndex >= firstIndex ? secondIndex + 1 : secondIndex;
+
+  return [squareAt(firstIndex), squareAt(distinctSecondIndex)];
+}
+
+function randomIndex(random: () => number, length: number): number {
+  return Math.max(0, Math.min(length - 1, Math.floor(random() * length)));
+}
+
+function squareAt(index: number): Square {
   const file = files[index % 8];
   const rank = Math.floor(index / 8) + 1;
 
@@ -75,6 +161,7 @@ export function randomSquare(random = Math.random): Square {
 export function createAttempt(input: {
   id: string;
   completedAt: string;
+  training: TrainingModule;
   score: number;
   answered: number;
 }): Attempt {
@@ -84,15 +171,48 @@ export function createAttempt(input: {
   });
 }
 
-export function startRound(input: { now: number; prompt: Square }): RoundState {
-  return {
-    kind: "running",
-    prompt: input.prompt,
-    correct: 0,
-    answered: 0,
-    feedback: null,
-    endsAt: input.now + ATTEMPT_DURATION_MS
-  };
+type RoundPrompt =
+  | { training: "square-colors"; prompt: Square }
+  | { training: "same-color"; prompt: SameColorPrompt }
+  | { training: "coordinates"; prompt: Square };
+
+export function prepareRound(input: { training: "square-colors"; prompt: Square }): SquareColorsReadyRound;
+export function prepareRound(input: { training: "same-color"; prompt: SameColorPrompt }): SameColorReadyRound;
+export function prepareRound(input: { training: "coordinates"; prompt: Square }): CoordinatesReadyRound;
+export function prepareRound(input: RoundPrompt): ReadyRound {
+  switch (input.training) {
+    case "square-colors":
+      return {
+        kind: "ready",
+        training: input.training,
+        prompt: input.prompt,
+        correct: 0,
+        answered: 0,
+        feedback: null
+      };
+    case "same-color":
+      return {
+        kind: "ready",
+        training: input.training,
+        prompt: input.prompt,
+        correct: 0,
+        answered: 0,
+        feedback: null
+      };
+    case "coordinates":
+      return {
+        kind: "ready",
+        training: input.training,
+        prompt: input.prompt,
+        correct: 0,
+        answered: 0,
+        feedback: null
+      };
+    default: {
+      const _exhaustive: never = input;
+      return _exhaustive;
+    }
+  }
 }
 
 export function remainingMs(state: RoundState, now: number): number {
@@ -100,6 +220,8 @@ export function remainingMs(state: RoundState, now: number): number {
     case "idle":
     case "finished":
       return 0;
+    case "ready":
+      return ATTEMPT_DURATION_MS;
     case "paused":
       return state.remainingMs;
     case "running":
@@ -107,13 +229,70 @@ export function remainingMs(state: RoundState, now: number): number {
   }
 }
 
+export function startRoundClock(
+  state: SquareColorsReadyRound | SquareColorsRunningRound,
+  now: number
+): SquareColorsRunningRound;
+export function startRoundClock(
+  state: SameColorReadyRound | SameColorRunningRound,
+  now: number
+): SameColorRunningRound;
+export function startRoundClock(
+  state: CoordinatesReadyRound | CoordinatesRunningRound,
+  now: number
+): CoordinatesRunningRound;
+export function startRoundClock(state: ReadyRound | RunningRound, now: number): RunningRound;
+export function startRoundClock(state: RoundState, now: number): RoundState;
+export function startRoundClock(state: RoundState, now: number): RoundState {
+  if (state.kind !== "ready") {
+    return state;
+  }
+
+  switch (state.training) {
+    case "square-colors":
+      return {
+        kind: "running",
+        training: state.training,
+        prompt: state.prompt,
+        correct: state.correct,
+        answered: state.answered,
+        feedback: state.feedback,
+        endsAt: now + ATTEMPT_DURATION_MS
+      };
+    case "same-color":
+      return {
+        kind: "running",
+        training: state.training,
+        prompt: state.prompt,
+        correct: state.correct,
+        answered: state.answered,
+        feedback: state.feedback,
+        endsAt: now + ATTEMPT_DURATION_MS
+      };
+    case "coordinates":
+      return {
+        kind: "running",
+        training: state.training,
+        prompt: state.prompt,
+        correct: state.correct,
+        answered: state.answered,
+        feedback: state.feedback,
+        endsAt: now + ATTEMPT_DURATION_MS
+      };
+    default: {
+      const _exhaustive: never = state;
+      return _exhaustive;
+    }
+  }
+}
+
 export function answerRound(input: {
-  state: RoundState;
+  state: SquareColorsRunningRound;
   answer: SquareColor;
   now: number;
-}): RoundState {
+}): SquareColorsRunningRound {
   const { state } = input;
-  if (state.kind !== "running" || state.feedback !== null || input.now >= state.endsAt) {
+  if (state.feedback !== null || input.now >= state.endsAt) {
     return state;
   }
 
@@ -132,12 +311,92 @@ export function answerRound(input: {
   };
 }
 
-export function advanceRound(state: RoundState, nextPrompt: Square): RoundState {
-  if (state.kind !== "running" || state.feedback === null) {
+export function answerSameColorRound(input: {
+  state: SameColorRunningRound;
+  answer: SameColorAnswer;
+  now: number;
+}): SameColorRunningRound {
+  const { state } = input;
+  if (state.feedback !== null || input.now >= state.endsAt) {
+    return state;
+  }
+
+  const expected: SameColorAnswer = sameColor(state.prompt[0], state.prompt[1]) ? "same" : "different";
+  const isCorrect = input.answer === expected;
+
+  return {
+    ...state,
+    answered: state.answered + 1,
+    correct: state.correct + Number(isCorrect),
+    feedback: {
+      kind: isCorrect ? "correct" : "incorrect",
+      picked: input.answer,
+      expected
+    }
+  };
+}
+
+export function answerCoordinatesRound(input: {
+  state: CoordinatesRunningRound;
+  answer: Square;
+  now: number;
+}): CoordinatesRunningRound {
+  const { state } = input;
+  if (state.feedback !== null || input.now >= state.endsAt) {
+    return state;
+  }
+
+  const expected = state.prompt;
+  const isCorrect = sameSquare(input.answer, expected);
+
+  return {
+    ...state,
+    answered: state.answered + 1,
+    correct: state.correct + Number(isCorrect),
+    feedback: {
+      kind: isCorrect ? "correct" : "incorrect",
+      picked: input.answer,
+      expected
+    }
+  };
+}
+
+export function advanceRound(state: SquareColorsRunningRound, nextPrompt: Square): SquareColorsRunningRound {
+  if (state.feedback === null) {
     return state;
   }
 
   return { ...state, prompt: nextPrompt, feedback: null };
+}
+
+export function advanceSameColorRound(
+  state: SameColorRunningRound,
+  nextPrompt: SameColorPrompt
+): SameColorRunningRound {
+  if (state.feedback === null) {
+    return state;
+  }
+
+  return { ...state, prompt: nextPrompt, feedback: null };
+}
+
+export function advanceCoordinatesRound(
+  state: CoordinatesRunningRound,
+  nextPrompt: Square
+): CoordinatesRunningRound {
+  if (state.feedback === null) {
+    return state;
+  }
+
+  return { ...state, prompt: nextPrompt, feedback: null };
+}
+
+export function sameColor(first: Square, second: Square): boolean {
+  return squareColor(first) === squareColor(second);
+}
+
+export function sameSquare(first: Square, second: Square): boolean {
+  return first.file === second.file && first.rank === second.rank;
 }
 
 export function pauseRound(state: RoundState, now: number): RoundState {
@@ -145,17 +404,47 @@ export function pauseRound(state: RoundState, now: number): RoundState {
     return state;
   }
 
-  const { endsAt, ...snapshot } = state;
-  const left = Math.max(0, endsAt - now);
+  const left = Math.max(0, state.endsAt - now);
   if (left === 0) {
     return state;
   }
 
-  return {
-    ...snapshot,
-    kind: "paused",
-    remainingMs: left
-  };
+  switch (state.training) {
+    case "square-colors":
+      return {
+        kind: "paused",
+        training: state.training,
+        prompt: state.prompt,
+        correct: state.correct,
+        answered: state.answered,
+        feedback: state.feedback,
+        remainingMs: left
+      };
+    case "same-color":
+      return {
+        kind: "paused",
+        training: state.training,
+        prompt: state.prompt,
+        correct: state.correct,
+        answered: state.answered,
+        feedback: state.feedback,
+        remainingMs: left
+      };
+    case "coordinates":
+      return {
+        kind: "paused",
+        training: state.training,
+        prompt: state.prompt,
+        correct: state.correct,
+        answered: state.answered,
+        feedback: state.feedback,
+        remainingMs: left
+      };
+    default: {
+      const _exhaustive: never = state;
+      return _exhaustive;
+    }
+  }
 }
 
 export function resumeRound(state: RoundState, now: number): RoundState {
@@ -163,9 +452,42 @@ export function resumeRound(state: RoundState, now: number): RoundState {
     return state;
   }
 
-  const { remainingMs: left, ...snapshot } = state;
-
-  return { ...snapshot, kind: "running", endsAt: now + left };
+  switch (state.training) {
+    case "square-colors":
+      return {
+        kind: "running",
+        training: state.training,
+        prompt: state.prompt,
+        correct: state.correct,
+        answered: state.answered,
+        feedback: state.feedback,
+        endsAt: now + state.remainingMs
+      };
+    case "same-color":
+      return {
+        kind: "running",
+        training: state.training,
+        prompt: state.prompt,
+        correct: state.correct,
+        answered: state.answered,
+        feedback: state.feedback,
+        endsAt: now + state.remainingMs
+      };
+    case "coordinates":
+      return {
+        kind: "running",
+        training: state.training,
+        prompt: state.prompt,
+        correct: state.correct,
+        answered: state.answered,
+        feedback: state.feedback,
+        endsAt: now + state.remainingMs
+      };
+    default: {
+      const _exhaustive: never = state;
+      return _exhaustive;
+    }
+  }
 }
 
 export function finishRound(input: {
@@ -184,6 +506,7 @@ export function finishRound(input: {
     attempt: createAttempt({
       id: input.id,
       completedAt: input.completedAt,
+      training: state.training,
       score: state.correct,
       answered: state.answered
     })

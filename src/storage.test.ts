@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createAttempt } from "./domain";
+import type { TrainingModule } from "./domain";
 import { clearAttemptHistory, readAttempts, saveAttempt } from "./storage";
 
 const values = new Map<string, string>();
@@ -9,10 +10,16 @@ const localStorage = {
   removeItem: (key: string) => values.delete(key)
 };
 
-function attempt(id: string, completedAt: string, score: number) {
+function attempt(
+  id: string,
+  completedAt: string,
+  score: number,
+  training: TrainingModule = "square-colors"
+) {
   return createAttempt({
     id,
     completedAt,
+    training,
     score,
     answered: score
   });
@@ -42,6 +49,41 @@ describe("attempt history storage", () => {
     const result = saveAttempt(completed);
 
     expect(result.attempts).toEqual([completed]);
+  });
+
+  it("keeps attempts from all training modules in the same history", () => {
+    const squareColors = attempt("e842882b-e4b0-46bc-8b1d-c7a4ccdf774e", "2026-10-18T12:00:00.000Z", 4);
+    const sameColor = attempt(
+      "b58aa66b-8b21-4fc6-9182-f86a59129d44",
+      "2026-10-19T12:00:00.000Z",
+      7,
+      "same-color"
+    );
+    const coordinates = attempt(
+      "80db80fb-e633-41ed-82f2-2f1c586a50f3",
+      "2026-10-20T12:00:00.000Z",
+      9,
+      "coordinates"
+    );
+
+    saveAttempt(squareColors);
+    saveAttempt(sameColor);
+    const result = saveAttempt(coordinates);
+
+    expect(result.attempts.map(({ training }) => training)).toEqual(["coordinates", "same-color", "square-colors"]);
+    expect(readAttempts()).toEqual([coordinates, sameColor, squareColors]);
+  });
+
+  it("reads saved attempts without a module as Square Colors", () => {
+    values.set("offline-blind-chess.attempts.v1", JSON.stringify([{
+      id: "e842882b-e4b0-46bc-8b1d-c7a4ccdf774e",
+      completedAt: "2026-10-18T12:00:00.000Z",
+      score: 3,
+      answered: 4,
+      accuracy: 75
+    }]));
+
+    expect(readAttempts()).toMatchObject([{ training: "square-colors", score: 3, accuracy: 75 }]);
   });
 
   it("clears all saved attempts", () => {

@@ -7,8 +7,17 @@ This context covers blindfold chess training drills and the practice history the
 **Square Colors**:
 A training drill where a player identifies a chess square's light or dark color from its coordinate.
 
+**Same Color**:
+A training drill where a player decides whether two chess squares have the same color.
+
+**Coordinates**:
+A training drill where a player locates the chessboard square represented by a coordinate.
+
 **Attempt**:
-One 60-second round of Square Colors.
+One completed 60-second round of a training drill.
+
+**Training Module**:
+One of the available chess training drills, such as Square Colors, Same Color, or Coordinates.
 
 **Score**:
 The number of correct answers in one attempt.
@@ -17,7 +26,7 @@ The number of correct answers in one attempt.
 The percentage of answered prompts in an attempt that were correct.
 
 **Attempt History**:
-The chronological record of a player's completed Square Colors attempts.
+A chronological record of a player's completed attempts for one training module.
 
 **Personal Best**:
-The highest score a player has achieved across completed Square Colors attempts.
+The highest score a player has achieved in one training module.
