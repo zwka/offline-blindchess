@@ -2,8 +2,10 @@ import { describe, expect, it } from "vitest";
 import {
   advanceCoordinatesRound,
   advancePairRound,
+  advanceQuadrantRound,
   advanceRound,
   answerCoordinatesRound,
+  answerQuadrantRound,
   answerPairRound,
   answerRound,
   attemptsForTraining,
@@ -12,6 +14,7 @@ import {
   personalBestScore,
   pauseRound,
   prepareRound,
+  quadrantForSquare,
   randomDiagonalPrompt,
   randomSameColorPrompt,
   randomSquare,
@@ -23,7 +26,7 @@ import {
   squareColor,
   startRoundClock,
 } from "./domain";
-import type { DiagonalPrompt, SameColorPrompt, Square } from "./domain";
+import type { DiagonalPrompt, QuadrantNumber, SameColorPrompt, Square } from "./domain";
 
 const a1: Square = { file: "a", rank: 1 };
 
@@ -38,6 +41,53 @@ describe("training domain", () => {
   it("maps the ends of the random range to valid board coordinates", () => {
     expect(randomSquare(() => 0)).toEqual(a1);
     expect(randomSquare(() => 0.999_999)).toEqual({ file: "h", rank: 8 });
+  });
+
+  it("maps squares to quadrants using the agreed row-first numbering", () => {
+    const examples: [Square, QuadrantNumber][] = [
+      [{ file: "a", rank: 8 }, 1],
+      [{ file: "d", rank: 5 }, 1],
+      [{ file: "e", rank: 8 }, 2],
+      [{ file: "h", rank: 5 }, 2],
+      [{ file: "a", rank: 4 }, 3],
+      [{ file: "d", rank: 1 }, 3],
+      [{ file: "e", rank: 4 }, 4],
+      [{ file: "h", rank: 1 }, 4]
+    ];
+
+    for (const [square, expected] of examples) {
+      expect(quadrantForSquare(square)).toBe(expected);
+    }
+  });
+
+  it("scores quadrant answers and reveals the expected quadrant when wrong", () => {
+    const prompt: Square = { file: "e", rank: 5 };
+    const ready = prepareRound({ training: "quadrant", prompt });
+    const running = startRoundClock(ready, 1_000);
+    const answered = answerQuadrantRound({ state: running, answer: 1, now: 1_000 });
+
+    expect(answered).toMatchObject({
+      kind: "running",
+      training: "quadrant",
+      endsAt: 61_000,
+      correct: 0,
+      answered: 1,
+      feedback: { kind: "incorrect", picked: 1, expected: 2 }
+    });
+
+    expect(answerQuadrantRound({ state: answered, answer: 2, now: 1_100 })).toBe(answered);
+  });
+
+  it("advances to the next square after a Quadrant answer", () => {
+    const firstPrompt: Square = { file: "a", rank: 4 };
+    const nextPrompt: Square = { file: "e", rank: 4 };
+    const ready = prepareRound({ training: "quadrant", prompt: firstPrompt });
+    const running = startRoundClock(ready, 100);
+    const answered = answerQuadrantRound({ state: running, answer: 3, now: 100 });
+    const advanced = advanceQuadrantRound(answered, nextPrompt);
+
+    expect(answered).toMatchObject({ correct: 1, answered: 1, feedback: { expected: 3 } });
+    expect(advanced).toMatchObject({ kind: "running", prompt: nextPrompt, feedback: null });
   });
 
   it("compares square colors by parity", () => {
@@ -341,6 +391,13 @@ describe("training domain", () => {
         training: "diagonals",
         score: 7,
         answered: 9
+      }),
+      createAttempt({
+        id: "63f22914-ff42-4f80-86f5-92f68b3f5400",
+        completedAt: "2026-10-22T12:00:00.000Z",
+        training: "quadrant",
+        score: 11,
+        answered: 12
       })
     ];
 
@@ -348,6 +405,7 @@ describe("training domain", () => {
     expect(personalBestScore(attempts, "same-color")).toBe(9);
     expect(personalBestScore(attempts, "coordinates")).toBe(18);
     expect(personalBestScore(attempts, "diagonals")).toBe(7);
+    expect(personalBestScore(attempts, "quadrant")).toBe(11);
     expect(personalBestScore([], "same-color")).toBeNull();
   });
 
@@ -380,6 +438,13 @@ describe("training domain", () => {
         training: "diagonals",
         score: 7,
         answered: 9
+      }),
+      createAttempt({
+        id: "63f22914-ff42-4f80-86f5-92f68b3f5400",
+        completedAt: "2026-10-22T12:00:00.000Z",
+        training: "quadrant",
+        score: 11,
+        answered: 12
       })
     ];
 
@@ -387,6 +452,8 @@ describe("training domain", () => {
       .toEqual([["coordinates", 18]]);
     expect(attemptsForTraining(attempts, "diagonals").map(({ training, score }) => [training, score]))
       .toEqual([["diagonals", 7]]);
+    expect(attemptsForTraining(attempts, "quadrant").map(({ training, score }) => [training, score]))
+      .toEqual([["quadrant", 11]]);
     expect(attemptsForTraining(attempts, "square-colors").map(({ training, score }) => [training, score]))
       .toEqual([["square-colors", 12]]);
     expect(attemptsForTraining(attempts, "same-color").map(({ training, score }) => [training, score]))

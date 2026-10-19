@@ -16,9 +16,11 @@ import {
 } from "lucide-react";
 import {
   advanceCoordinatesRound,
+  advanceQuadrantRound,
   advancePairRound,
   advanceRound,
   answerCoordinatesRound,
+  answerQuadrantRound,
   answerPairRound,
   answerRound,
   attemptsForTraining,
@@ -26,6 +28,7 @@ import {
   personalBestScore,
   pauseRound,
   prepareRound,
+  QUADRANT_DEFINITIONS,
   randomDiagonalPrompt,
   randomSameColorPrompt,
   randomSquare,
@@ -40,6 +43,7 @@ import type {
   Attempt,
   CoordinatesFeedback,
   PairRelation,
+  QuadrantNumber,
   ReadyRound,
   RoundState,
   Square,
@@ -66,7 +70,8 @@ type AnswerSubmission =
   | { training: "square-colors"; answer: SquareColor }
   | { training: "same-color"; answer: PairRelation }
   | { training: "coordinates"; answer: Square }
-  | { training: "diagonals"; answer: PairRelation };
+  | { training: "diagonals"; answer: PairRelation }
+  | { training: "quadrant"; answer: QuadrantNumber };
 
 const trainingModules = TrainingModuleSchema.options;
 
@@ -86,6 +91,10 @@ const trainingModuleMetadata = {
   diagonals: {
     title: "Diagonals",
     description: "Decide whether two squares share a diagonal"
+  },
+  quadrant: {
+    title: "Quadrant",
+    description: "Identify which quadrant contains each square"
   }
 } satisfies Record<TrainingModule, { title: string; description: string }>;
 
@@ -206,6 +215,30 @@ function CoordinateBoard({
           );
         })}
       </div>
+    </div>
+  );
+}
+
+function QuadrantAnswerControls({
+  disabled,
+  onSelect
+}: {
+  disabled: boolean;
+  onSelect: (quadrant: QuadrantNumber) => void;
+}) {
+  return (
+    <div className="quadrant-answer-controls" role="group" aria-label="Choose the quadrant containing the square">
+      {QUADRANT_DEFINITIONS.map(({ number }) => (
+        <button
+          className="quadrant-answer-button"
+          type="button"
+          key={number}
+          disabled={disabled}
+          onClick={() => onSelect(number)}
+        >
+          Quadrant {number}
+        </button>
+      ))}
     </div>
   );
 }
@@ -371,8 +404,10 @@ function App() {
         updateRound(advancePairRound(current, randomSameColorPrompt()));
       } else if (current.training === "coordinates") {
         updateRound(advanceCoordinatesRound(current, randomSquare()));
-      } else {
+      } else if (current.training === "diagonals") {
         updateRound(advancePairRound(current, randomDiagonalPrompt()));
+      } else {
+        updateRound(advanceQuadrantRound(current, randomSquare()));
       }
     }, 430);
 
@@ -404,6 +439,9 @@ function App() {
         break;
       case "diagonals":
         ready = prepareRound({ training, prompt: randomDiagonalPrompt() });
+        break;
+      case "quadrant":
+        ready = prepareRound({ training, prompt: randomSquare() });
         break;
       default: {
         const _exhaustive: never = training;
@@ -466,6 +504,12 @@ function App() {
         }
         updateRound(answerCoordinatesRound({ state: running, answer: submission.answer, now }));
         break;
+      case "quadrant":
+        if (running.training !== "quadrant") {
+          return;
+        }
+        updateRound(answerQuadrantRound({ state: running, answer: submission.answer, now }));
+        break;
       default: {
         const _exhaustive: never = submission;
         return _exhaustive;
@@ -480,7 +524,11 @@ function App() {
       }
 
       const current = roundRef.current;
-      if ((current.kind !== "ready" && current.kind !== "running") || current.training === "coordinates") {
+      if (
+        (current.kind !== "ready" && current.kind !== "running") ||
+        current.training === "coordinates" ||
+        current.training === "quadrant"
+      ) {
         return;
       }
 
@@ -573,7 +621,7 @@ function App() {
       {screen === "home" && (
         <main className="training-hub page-width">
           <header className="training-hub-heading">
-            <p className="eyebrow"><span className="eyebrow-dot" /> FOUNDATIONS <span>4 DRILLS</span></p>
+            <p className="eyebrow"><span className="eyebrow-dot" /> FOUNDATIONS <span>{trainingModules.length} DRILLS</span></p>
             <h1>Choose a drill</h1>
           </header>
           <section className="training-options" aria-label="Training modules">
@@ -621,13 +669,15 @@ function App() {
             aria-label={
               round.training === "square-colors" ? "Square color question" :
                 round.training === "same-color" ? "Same color question" :
-                  round.training === "diagonals" ? "Diagonals question" : "Coordinates question"
+                  round.training === "diagonals" ? "Diagonals question" :
+                    round.training === "quadrant" ? "Quadrant question" : "Coordinates question"
             }
           >
             <p className="question-kicker">
               {round.training === "square-colors" ? "WHAT COLOR IS THIS SQUARE?" :
                 round.training === "same-color" ? "DO THESE SQUARES SHARE A COLOR?" :
-                  round.training === "diagonals" ? "DO THESE SQUARES SHARE A DIAGONAL?" : "FIND THIS SQUARE"}
+                  round.training === "diagonals" ? "DO THESE SQUARES SHARE A DIAGONAL?" :
+                    round.training === "quadrant" ? "WHICH QUADRANT CONTAINS THIS SQUARE?" : "FIND THIS SQUARE"}
             </p>
             {round.training === "same-color" || round.training === "diagonals" ? (
               <div className="coordinate-pair" aria-live="polite" aria-atomic="true">
@@ -649,13 +699,20 @@ function App() {
                       ? round.training === "diagonals"
                         ? round.feedback.expected === "same" ? "They share a diagonal" : "They do not share a diagonal"
                         : round.feedback.expected === "same" ? "They are the same color" : "They are different colors"
+                      : round.training === "quadrant"
+                        ? `That square is in Quadrant ${round.feedback.expected}`
                       : `That square is ${round.feedback.expected.file}${round.feedback.expected.rank}`}
                 </>
               ) : <span aria-hidden="true">&nbsp;</span>}
             </div>
           </section>
 
-          {round.training === "coordinates" ? (
+          {round.training === "quadrant" ? (
+            <QuadrantAnswerControls
+              disabled={round.feedback !== null || round.kind === "paused"}
+              onSelect={(answer) => submitAnswer({ training: "quadrant", answer })}
+            />
+          ) : round.training === "coordinates" ? (
             <CoordinateBoard
               feedback={round.feedback}
               disabled={round.feedback !== null || round.kind === "paused"}
@@ -818,6 +875,21 @@ function App() {
             <div className="rule-detail coordinate-rule-detail">
               <p><strong>Diagonal squares share a color.</strong> They lie on the same diagonal when their file and rank differences are equal in magnitude.</p>
               <p>Same color alone does not prove that two squares lie on the same diagonal.</p>
+            </div>
+          ) : selectedTraining === "quadrant" ? (
+            <div className="quadrant-rule-content">
+              <div className="quadrant-map" role="group" aria-label="Quadrant number ranges">
+                {QUADRANT_DEFINITIONS.map(({ number, label }) => (
+                  <div className="quadrant-map-cell" key={number}>
+                    <strong>Quadrant {number}</strong>
+                    <span>{label}</span>
+                  </div>
+                ))}
+              </div>
+              <div className="rule-detail">
+                <p>Files <strong>a-d</strong> are on the left and <strong>e-h</strong> on the right. Ranks <strong>5-8</strong> are above ranks <strong>1-4</strong>.</p>
+                <p>Practice one quadrant range at a time. Move to the next when its squares come to mind quickly.</p>
+              </div>
             </div>
           ) : (
             <div className="rule-detail coordinate-rule-detail">

@@ -1,13 +1,22 @@
 import { z } from "zod";
 
 export const ATTEMPT_DURATION_MS = 60_000;
-export const TrainingModuleSchema = z.enum(["square-colors", "same-color", "coordinates", "diagonals"]);
+export const TrainingModuleSchema = z.enum(["square-colors", "same-color", "coordinates", "diagonals", "quadrant"]);
 
 export type TrainingModule = z.infer<typeof TrainingModuleSchema>;
 
 const files = ["a", "b", "c", "d", "e", "f", "g", "h"] as const;
 const FileSchema = z.enum(files);
 const RankSchema = z.number().int().min(1).max(8);
+
+export const QUADRANT_DEFINITIONS = [
+  { number: 1, files: ["a", "d"], ranks: [5, 8], label: "a-d / 5-8" },
+  { number: 2, files: ["e", "h"], ranks: [5, 8], label: "e-h / 5-8" },
+  { number: 3, files: ["a", "d"], ranks: [1, 4], label: "a-d / 1-4" },
+  { number: 4, files: ["e", "h"], ranks: [1, 4], label: "e-h / 1-4" }
+] as const;
+
+export type QuadrantNumber = typeof QUADRANT_DEFINITIONS[number]["number"];
 
 export const SquareSchema = z.object({
   file: FileSchema,
@@ -91,6 +100,14 @@ type DiagonalsSnapshot = {
   feedback: Feedback<PairRelation> | null;
 };
 
+type QuadrantSnapshot = {
+  training: "quadrant";
+  prompt: Square;
+  correct: number;
+  answered: number;
+  feedback: Feedback<QuadrantNumber> | null;
+};
+
 type CoordinatesSnapshot = {
   training: "coordinates";
   prompt: Square;
@@ -99,7 +116,7 @@ type CoordinatesSnapshot = {
   feedback: CoordinatesFeedback | null;
 };
 
-type RoundSnapshot = SquareColorsSnapshot | SameColorSnapshot | CoordinatesSnapshot | DiagonalsSnapshot;
+type RoundSnapshot = SquareColorsSnapshot | SameColorSnapshot | CoordinatesSnapshot | DiagonalsSnapshot | QuadrantSnapshot;
 
 type ReadyRoundFor<Snapshot> = Snapshot extends RoundSnapshot
   ? Omit<Snapshot, "correct" | "answered" | "feedback"> & {
@@ -133,14 +150,32 @@ type SquareColorsReadyRound = Extract<ReadyRound, { training: "square-colors" }>
 type SameColorReadyRound = Extract<ReadyRound, { training: "same-color" }>;
 type CoordinatesReadyRound = Extract<ReadyRound, { training: "coordinates" }>;
 type DiagonalsReadyRound = Extract<ReadyRound, { training: "diagonals" }>;
+type QuadrantReadyRound = Extract<ReadyRound, { training: "quadrant" }>;
 type SquareColorsRunningRound = Extract<RunningRound, { training: "square-colors" }>;
 type SameColorRunningRound = Extract<RunningRound, { training: "same-color" }>;
 type CoordinatesRunningRound = Extract<RunningRound, { training: "coordinates" }>;
 type DiagonalsRunningRound = Extract<RunningRound, { training: "diagonals" }>;
+type QuadrantRunningRound = Extract<RunningRound, { training: "quadrant" }>;
 
 export function squareColor(square: Square): SquareColor {
   const fileNumber = files.indexOf(square.file) + 1;
   return (fileNumber + square.rank) % 2 === 0 ? "dark" : "light";
+}
+
+export function quadrantForSquare(square: Square): QuadrantNumber {
+  const fileIndex = files.indexOf(square.file);
+  const quadrant = QUADRANT_DEFINITIONS.find(({ files: fileRange, ranks: rankRange }) =>
+    fileIndex >= files.indexOf(fileRange[0]) &&
+    fileIndex <= files.indexOf(fileRange[1]) &&
+    square.rank >= rankRange[0] &&
+    square.rank <= rankRange[1]
+  );
+
+  if (quadrant === undefined) {
+    throw new Error("Square does not belong to a board quadrant.");
+  }
+
+  return quadrant.number;
 }
 
 export function randomSquare(random = Math.random): Square {
@@ -223,12 +258,14 @@ type RoundPrompt =
   | { training: "square-colors"; prompt: Square }
   | { training: "same-color"; prompt: SameColorPrompt }
   | { training: "coordinates"; prompt: Square }
-  | { training: "diagonals"; prompt: DiagonalPrompt };
+  | { training: "diagonals"; prompt: DiagonalPrompt }
+  | { training: "quadrant"; prompt: Square };
 
 export function prepareRound(input: { training: "square-colors"; prompt: Square }): SquareColorsReadyRound;
 export function prepareRound(input: { training: "same-color"; prompt: SameColorPrompt }): SameColorReadyRound;
 export function prepareRound(input: { training: "coordinates"; prompt: Square }): CoordinatesReadyRound;
 export function prepareRound(input: { training: "diagonals"; prompt: DiagonalPrompt }): DiagonalsReadyRound;
+export function prepareRound(input: { training: "quadrant"; prompt: Square }): QuadrantReadyRound;
 export function prepareRound(input: RoundPrompt): ReadyRound {
   return {
     ...input,
@@ -269,6 +306,10 @@ export function startRoundClock(
   state: DiagonalsReadyRound | DiagonalsRunningRound,
   now: number
 ): DiagonalsRunningRound;
+export function startRoundClock(
+  state: QuadrantReadyRound | QuadrantRunningRound,
+  now: number
+): QuadrantRunningRound;
 export function startRoundClock(state: ReadyRound | RunningRound, now: number): RunningRound;
 export function startRoundClock(state: RoundState, now: number): RoundState;
 export function startRoundClock(state: RoundState, now: number): RoundState {
@@ -290,6 +331,31 @@ export function answerRound(input: {
   }
 
   const expected = squareColor(state.prompt);
+  const isCorrect = input.answer === expected;
+
+  return {
+    ...state,
+    answered: state.answered + 1,
+    correct: state.correct + Number(isCorrect),
+    feedback: {
+      kind: isCorrect ? "correct" : "incorrect",
+      picked: input.answer,
+      expected
+    }
+  };
+}
+
+export function answerQuadrantRound(input: {
+  state: QuadrantRunningRound;
+  answer: QuadrantNumber;
+  now: number;
+}): QuadrantRunningRound {
+  const { state } = input;
+  if (state.feedback !== null || input.now >= state.endsAt) {
+    return state;
+  }
+
+  const expected = quadrantForSquare(state.prompt);
   const isCorrect = input.answer === expected;
 
   return {
@@ -382,6 +448,17 @@ export function advanceCoordinatesRound(
   state: CoordinatesRunningRound,
   nextPrompt: Square
 ): CoordinatesRunningRound {
+  if (state.feedback === null) {
+    return state;
+  }
+
+  return { ...state, prompt: nextPrompt, feedback: null };
+}
+
+export function advanceQuadrantRound(
+  state: QuadrantRunningRound,
+  nextPrompt: Square
+): QuadrantRunningRound {
   if (state.feedback === null) {
     return state;
   }

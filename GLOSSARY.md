@@ -13,6 +13,9 @@ A training drill where a player decides whether two chess squares have the same 
 **Diagonals**:
 A training drill where a player decides whether two chess squares lie on the same diagonal.
 
+**Quadrant**:
+A training drill where a player identifies which of the board's four quadrants contains a given square.
+
 **Coordinates**:
 A training drill where a player locates the chessboard square represented by a coordinate.
 

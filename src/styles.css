@@ -728,6 +728,36 @@ button:disabled {
   gap: 12px;
 }
 
+.quadrant-answer-controls {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.quadrant-answer-button {
+  display: grid;
+  min-width: 0;
+  min-height: 76px;
+  place-items: center;
+  padding: 12px;
+  border: 1px solid var(--answer-border);
+  border-radius: 5px;
+  background: var(--surface);
+  color: var(--ink);
+  font-size: 16px;
+  font-weight: 650;
+  transition: border-color 120ms ease, background-color 120ms ease;
+}
+
+.quadrant-answer-button:hover:not(:disabled) {
+  border-color: var(--green);
+  background: var(--surface-hover);
+}
+
+.quadrant-answer-button:disabled {
+  opacity: 0.82;
+}
+
 .answer-button {
   display: flex;
   min-width: 0;
@@ -1104,6 +1134,52 @@ button:disabled {
   display: none;
 }
 
+.quadrant-rule-content {
+  display: grid;
+  grid-template-columns: minmax(170px, 0.82fr) minmax(0, 1.18fr);
+  align-items: center;
+  gap: 22px;
+  padding-top: 16px;
+}
+
+.quadrant-map {
+  display: grid;
+  width: 100%;
+  aspect-ratio: 1;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: var(--surface);
+}
+
+.quadrant-map-cell {
+  display: grid;
+  align-content: center;
+  justify-items: center;
+  gap: 6px;
+  padding: 8px;
+  text-align: center;
+}
+
+.quadrant-map-cell:nth-child(odd) {
+  border-right: 1px solid var(--line);
+}
+
+.quadrant-map-cell:nth-child(-n + 2) {
+  border-bottom: 1px solid var(--line);
+}
+
+.quadrant-map-cell strong {
+  font-size: 13px;
+}
+
+.quadrant-map-cell span {
+  color: var(--muted);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
 .rule-detail p {
   margin: 0 0 14px;
   color: var(--body-copy);
@@ -1351,6 +1427,15 @@ button:disabled {
     gap: 8px;
   }
 
+  .quadrant-answer-controls {
+    gap: 8px;
+  }
+
+  .quadrant-answer-button {
+    min-height: 68px;
+    font-size: 15px;
+  }
+
   .answer-button {
     min-height: 68px;
     gap: 8px;
@@ -1375,6 +1460,16 @@ button:disabled {
   .rule-dialog-content {
     grid-template-columns: minmax(0, 1fr);
     gap: 16px;
+  }
+
+  .quadrant-rule-content {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 16px;
+  }
+
+  .quadrant-map {
+    width: min(100%, 220px);
+    margin: 0 auto;
   }
 
   .rule-dialog-content .board-frame {
