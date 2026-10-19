@@ -75,7 +75,11 @@ The signed APK is `android/app/build/outputs/apk/release/app-release.apk`. The `
 
 Keep `applicationId` in `android/app/build.gradle`, `appId` in `capacitor.config.ts`, and the local HTTPS origin in `capacitor.config.ts` unchanged. These values preserve the installed app identity and its WebView storage across updates. Gradle reads the signing key path, alias, and passwords from the terminal environment; do not put the key or passwords in the repository.
 
-Transfer the APK to the device over USB, Quick Share, Bluetooth, or a memory card, then open it from the receiving file manager. If Android asks, allow that file manager to install unknown apps. The permission applies only to that source app. Return to the APK and confirm the install. Do not disable device-wide security protections. A debug APK from `npm run android:apk:debug` uses a different signing key and cannot update a release installation.
+Transfer the APK to the device over USB, Quick Share, Bluetooth, or a memory card, then open it from the app you used to receive the APK.
+
+On Android 6-7 (API 23-25), open **Settings > Security** and turn on **Unknown sources**. Install the APK, then return to **Settings > Security** and turn **Unknown sources** off.
+
+On Android 8+ (API 26+), allow **Install unknown apps** for the app you used to open the APK. Android limits this permission to that source app. Return to the APK and confirm the install. Do not turn off other security protections. A debug APK from `npm run android:apk:debug` uses a different signing key and cannot update a release installation.
 
 ## Install the Apple PWA
 
@@ -115,7 +119,7 @@ With an emulator or device connected, `npm run android:test:device` checks the i
 Use an Android 6.0 or later device or emulator. Start with a clean app installation. Uninstall an existing test copy first, or create a fresh emulator profile. Uninstalling erases that app's local test data.
 
 1. Build the first APK with `npm run android:apk -- -PversionCode=1`, then transfer it to the device.
-2. Enable airplane mode and turn off Wi-Fi. Open the APK from the file manager and install it. If Android prompts you, allow **Install unknown apps** only for that file manager.
+2. Enable airplane mode and turn off Wi-Fi. Follow the Android-version-specific permission steps above, then open the APK from the file manager and install it.
 3. Launch the app while offline. Complete a Training Module Attempt and confirm that it appears in Attempt History. Force-stop and reopen the app, then confirm that the Attempt remains.
 4. Build the update with the same signing key by running `npm run android:apk -- -PversionCode=2`. Transfer the new APK to the device without turning networking back on.
 5. Open the new APK from the same file manager and install it over the existing app. Launch the app offline and confirm that Attempt History and Personal Best remain.
