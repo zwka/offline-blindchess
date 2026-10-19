@@ -77,12 +77,19 @@ describe("attempt history storage", () => {
       12,
       "quadrant"
     );
+    const knight = attempt(
+      "6d057d74-ae2d-4b49-9e45-c8ae0a99b6f1",
+      "2026-10-23T12:00:00.000Z",
+      13,
+      "knight"
+    );
 
     saveAttempt(squareColors);
     saveAttempt(sameColor);
     saveAttempt(coordinates);
     const result = saveAttempt(diagonals);
     const withQuadrant = saveAttempt(quadrant);
+    const withKnight = saveAttempt(knight);
 
     expect(result.attempts.map(({ training }) => training)).toEqual([
       "diagonals",
@@ -97,7 +104,15 @@ describe("attempt history storage", () => {
       "same-color",
       "square-colors"
     ]);
-    expect(readAttempts()).toEqual([quadrant, diagonals, coordinates, sameColor, squareColors]);
+    expect(withKnight.attempts.map(({ training }) => training)).toEqual([
+      "knight",
+      "quadrant",
+      "diagonals",
+      "coordinates",
+      "same-color",
+      "square-colors"
+    ]);
+    expect(readAttempts()).toEqual([knight, quadrant, diagonals, coordinates, sameColor, squareColors]);
   });
 
   it("reads saved attempts without a module as Square Colors", () => {

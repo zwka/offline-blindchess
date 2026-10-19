@@ -18,6 +18,7 @@ import {
   advancePairRound,
   advanceSquarePromptRound,
   answerCoordinatesRound,
+  answerKnightRound,
   answerQuadrantRound,
   answerPairRound,
   answerRound,
@@ -28,6 +29,7 @@ import {
   prepareRound,
   QUADRANT_DEFINITIONS,
   randomDiagonalPrompt,
+  randomKnightPrompt,
   randomSameColorPrompt,
   randomSquare,
   remainingMs,
@@ -40,6 +42,7 @@ import {
 import type {
   Attempt,
   CoordinatesFeedback,
+  KnightMoveAnswer,
   PairRelation,
   QuadrantNumber,
   ReadyRound,
@@ -70,7 +73,8 @@ type AnswerSubmission =
   | { training: "same-color"; answer: PairRelation }
   | { training: "coordinates"; answer: Square }
   | { training: "diagonals"; answer: PairRelation }
-  | { training: "quadrant"; answer: QuadrantNumber };
+  | { training: "quadrant"; answer: QuadrantNumber }
+  | { training: "knight"; answer: KnightMoveAnswer };
 
 const trainingModules = TrainingModuleSchema.options;
 
@@ -104,6 +108,12 @@ const trainingModuleMetadata = {
     description: "Identify which quadrant contains each square",
     questionLabel: "Quadrant question",
     questionPrompt: "WHICH QUADRANT CONTAINS THIS SQUARE?"
+  },
+  knight: {
+    title: "Knight",
+    description: "Check whether a knight can move between two squares",
+    questionLabel: "Knight move question",
+    questionPrompt: "CAN A KNIGHT MOVE BETWEEN THESE SQUARES?"
   }
 } satisfies Record<TrainingModule, {
   title: string;
@@ -326,6 +336,10 @@ function incorrectAnswerMessage(round: ActiveRound): string {
       return round.feedback.expected === "same" ? "They share a diagonal" : "They do not share a diagonal";
     case "quadrant":
       return `That square is in Quadrant ${round.feedback.expected}`;
+    case "knight":
+      return round.feedback.expected === "valid"
+        ? "A knight can move between these squares"
+        : "A knight cannot move between these squares";
     default: {
       const _exhaustive: never = round;
       return _exhaustive;
@@ -443,8 +457,13 @@ function App() {
         updateRound(advanceSquarePromptRound(current, randomSquare()));
       } else if (current.training === "diagonals") {
         updateRound(advancePairRound(current, randomDiagonalPrompt()));
-      } else {
+      } else if (current.training === "quadrant") {
         updateRound(advanceSquarePromptRound(current, randomSquare()));
+      } else if (current.training === "knight") {
+        updateRound(advancePairRound(current, randomKnightPrompt()));
+      } else {
+        const _exhaustive: never = current;
+        return _exhaustive;
       }
     }, 430);
 
@@ -479,6 +498,9 @@ function App() {
         break;
       case "quadrant":
         ready = prepareRound({ training, prompt: randomSquare() });
+        break;
+      case "knight":
+        ready = prepareRound({ training, prompt: randomKnightPrompt() });
         break;
       default: {
         const _exhaustive: never = training;
@@ -547,6 +569,12 @@ function App() {
         }
         updateRound(answerQuadrantRound({ state: running, answer: submission.answer, now }));
         break;
+      case "knight":
+        if (running.training !== "knight") {
+          return;
+        }
+        updateRound(answerKnightRound({ state: running, answer: submission.answer, now }));
+        break;
       default: {
         const _exhaustive: never = submission;
         return _exhaustive;
@@ -575,14 +603,18 @@ function App() {
           ? { training: "square-colors", answer: "light" }
           : current.training === "same-color"
             ? { training: "same-color", answer: "different" }
-            : { training: "diagonals", answer: "different" });
+            : current.training === "diagonals"
+              ? { training: "diagonals", answer: "different" }
+              : { training: "knight", answer: "invalid" });
       } else if (event.key === "ArrowRight") {
         event.preventDefault();
         submitAnswer(current.training === "square-colors"
           ? { training: "square-colors", answer: "dark" }
           : current.training === "same-color"
             ? { training: "same-color", answer: "same" }
-            : { training: "diagonals", answer: "same" });
+            : current.training === "diagonals"
+              ? { training: "diagonals", answer: "same" }
+              : { training: "knight", answer: "valid" });
       }
     };
 
@@ -706,7 +738,7 @@ function App() {
             aria-label={trainingModuleMetadata[round.training].questionLabel}
           >
             <p className="question-kicker">{trainingModuleMetadata[round.training].questionPrompt}</p>
-            {round.training === "same-color" || round.training === "diagonals" ? (
+            {round.training === "same-color" || round.training === "diagonals" || round.training === "knight" ? (
               <div className="coordinate-pair" aria-live="polite" aria-atomic="true">
                 <span className="coordinate">{round.prompt[0].file}{round.prompt[0].rank}</span>
                 <span className="coordinate-pair-divider" aria-hidden="true">?</span>
@@ -742,7 +774,8 @@ function App() {
             <div className="answer-controls" aria-label={
               round.training === "square-colors" ? "Choose square color" :
                 round.training === "diagonals" ? "Choose whether the squares share a diagonal" :
-                  "Choose whether the squares share a color"
+                  round.training === "knight" ? "Choose whether a knight can move between these squares" :
+                    "Choose whether the squares share a color"
             }>
               <button
                 className="answer-button answer-button--light"
@@ -751,11 +784,13 @@ function App() {
                   ? { training: "square-colors", answer: "light" }
                   : round.training === "same-color"
                     ? { training: "same-color", answer: "different" }
-                    : { training: "diagonals", answer: "different" })}
+                    : round.training === "diagonals"
+                      ? { training: "diagonals", answer: "different" }
+                      : { training: "knight", answer: "invalid" })}
                 disabled={round.feedback !== null || round.kind === "paused"}
               >
                 <ArrowLeft className="answer-direction" size={19} aria-hidden="true" />
-                {round.training === "square-colors" ? "Light" : "Different"}
+                {round.training === "square-colors" ? "Light" : round.training === "knight" ? "No" : "Different"}
               </button>
               <button
                 className="answer-button answer-button--dark"
@@ -764,11 +799,13 @@ function App() {
                   ? { training: "square-colors", answer: "dark" }
                   : round.training === "same-color"
                     ? { training: "same-color", answer: "same" }
-                    : { training: "diagonals", answer: "same" })}
+                    : round.training === "diagonals"
+                      ? { training: "diagonals", answer: "same" }
+                      : { training: "knight", answer: "valid" })}
                 disabled={round.feedback !== null || round.kind === "paused"}
               >
                 <ArrowRight className="answer-direction" size={19} aria-hidden="true" />
-                {round.training === "square-colors" ? "Dark" : "Same"}
+                {round.training === "square-colors" ? "Dark" : round.training === "knight" ? "Yes" : "Same"}
               </button>
             </div>
           )}
@@ -895,6 +932,11 @@ function App() {
             <div className="rule-detail coordinate-rule-detail">
               <p><strong>Diagonal squares share a color.</strong> They lie on the same diagonal when their file and rank differences are equal in magnitude.</p>
               <p>Same color alone does not prove that two squares lie on the same diagonal.</p>
+            </div>
+          ) : selectedTraining === "knight" ? (
+            <div className="rule-detail coordinate-rule-detail">
+              <p><strong>A knight moves in an L:</strong> two squares in one direction, then one square perpendicular.</p>
+              <p>The file and rank distances must be one and two, in either order. A knight can jump over other squares.</p>
             </div>
           ) : selectedTraining === "quadrant" ? (
             <div className="quadrant-rule-content">
