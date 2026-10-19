@@ -10,6 +10,9 @@ A training drill where a player identifies a chess square's light or dark color 
 **Same Color**:
 A training drill where a player decides whether two chess squares have the same color.
 
+**Diagonals**:
+A training drill where a player decides whether two chess squares lie on the same diagonal.
+
 **Coordinates**:
 A training drill where a player locates the chessboard square represented by a coordinate.
 
