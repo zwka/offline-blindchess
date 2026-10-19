@@ -10,6 +10,15 @@ A training drill where a player identifies a chess square's light or dark color 
 **Same Color**:
 A training drill where a player decides whether two chess squares have the same color.
 
+**Diagonals**:
+A training drill where a player decides whether two chess squares lie on the same diagonal.
+
+**Knight**:
+A training drill where a player decides whether a knight can legally move from one square to another in a single move.
+
+**Quadrant**:
+A training drill where a player identifies which of the board's four quadrants contains a given square.
+
 **Coordinates**:
 A training drill where a player locates the chessboard square represented by a coordinate.
 
@@ -17,7 +26,7 @@ A training drill where a player locates the chessboard square represented by a c
 One completed 60-second round of a training drill.
 
 **Training Module**:
-One of the available chess training drills, such as Square Colors, Same Color, or Coordinates.
+One of the available chess training drills, such as Square Colors, Same Color, Coordinates, Diagonals, Quadrant, or Knight.
 
 **Score**:
 The number of correct answers in one attempt.

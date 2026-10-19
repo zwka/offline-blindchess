@@ -1,10 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
-  advanceCoordinatesRound,
-  advanceSameColorRound,
-  advanceRound,
+  advancePairRound,
+  advanceSquarePromptRound,
   answerCoordinatesRound,
-  answerSameColorRound,
+  answerQuadrantRound,
+  answerPairRound,
+  answerKnightRound,
   answerRound,
   attemptsForTraining,
   createAttempt,
@@ -12,16 +13,21 @@ import {
   personalBestScore,
   pauseRound,
   prepareRound,
+  randomKnightPrompt,
+  quadrantForSquare,
+  randomDiagonalPrompt,
   randomSameColorPrompt,
   randomSquare,
   remainingMs,
   resumeRound,
   sameColor,
+  sameDiagonal,
+  isKnightMove,
   sameSquare,
   squareColor,
   startRoundClock,
 } from "./domain";
-import type { SameColorPrompt, Square } from "./domain";
+import type { DiagonalPrompt, KnightPrompt, KnightMoveAnswer, QuadrantNumber, SameColorPrompt, Square } from "./domain";
 
 const a1: Square = { file: "a", rank: 1 };
 
@@ -38,9 +44,133 @@ describe("training domain", () => {
     expect(randomSquare(() => 0.999_999)).toEqual({ file: "h", rank: 8 });
   });
 
+  it("maps squares to quadrants using the agreed row-first numbering", () => {
+    const examples: [Square, QuadrantNumber][] = [
+      [{ file: "a", rank: 8 }, 1],
+      [{ file: "d", rank: 5 }, 1],
+      [{ file: "e", rank: 8 }, 2],
+      [{ file: "h", rank: 5 }, 2],
+      [{ file: "a", rank: 4 }, 3],
+      [{ file: "d", rank: 1 }, 3],
+      [{ file: "e", rank: 4 }, 4],
+      [{ file: "h", rank: 1 }, 4]
+    ];
+
+    for (const [square, expected] of examples) {
+      expect(quadrantForSquare(square)).toBe(expected);
+    }
+  });
+
+  it("scores quadrant answers and reveals the expected quadrant when wrong", () => {
+    const prompt: Square = { file: "e", rank: 5 };
+    const ready = prepareRound({ training: "quadrant", prompt });
+    const running = startRoundClock(ready, 1_000);
+    const answered = answerQuadrantRound({ state: running, answer: 1, now: 1_000 });
+
+    expect(answered).toMatchObject({
+      kind: "running",
+      training: "quadrant",
+      endsAt: 61_000,
+      correct: 0,
+      answered: 1,
+      feedback: { kind: "incorrect", picked: 1, expected: 2 }
+    });
+
+    expect(answerQuadrantRound({ state: answered, answer: 2, now: 1_100 })).toBe(answered);
+  });
+
+  it("advances to the next square after a Quadrant answer", () => {
+    const firstPrompt: Square = { file: "a", rank: 4 };
+    const nextPrompt: Square = { file: "e", rank: 4 };
+    const ready = prepareRound({ training: "quadrant", prompt: firstPrompt });
+    const running = startRoundClock(ready, 100);
+    const answered = answerQuadrantRound({ state: running, answer: 3, now: 100 });
+    const advanced = advanceSquarePromptRound(answered, nextPrompt);
+
+    expect(answered).toMatchObject({ correct: 1, answered: 1, feedback: { expected: 3 } });
+    expect(advanced).toMatchObject({ kind: "running", prompt: nextPrompt, feedback: null });
+  });
+
   it("compares square colors by parity", () => {
     expect(sameColor(a1, { file: "c", rank: 3 })).toBe(true);
     expect(sameColor(a1, { file: "b", rank: 1 })).toBe(false);
+  });
+
+  it("recognizes diagonal pairs in either direction and at any distance", () => {
+    expect(sameDiagonal(a1, { file: "h", rank: 8 })).toBe(true);
+    expect(sameDiagonal({ file: "h", rank: 8 }, a1)).toBe(true);
+    expect(sameDiagonal({ file: "c", rank: 3 }, { file: "f", rank: 6 })).toBe(true);
+    expect(sameDiagonal(a1, { file: "c", rank: 2 })).toBe(false);
+    expect(sameColor(a1, { file: "c", rank: 5 })).toBe(true);
+    expect(sameDiagonal(a1, { file: "c", rank: 5 })).toBe(false);
+  });
+
+  it("generates distinct diagonal and non-diagonal prompts with balanced answers", () => {
+    const values = [0, 0, 0.75, 0, 0.25, 0, 0.5, 0];
+    const prompts = Array.from({ length: 4 }, () => randomDiagonalPrompt(() => values.shift() ?? 0));
+
+    expect(prompts.map(([first, second]) => sameDiagonal(first, second))).toEqual([true, false, true, false]);
+    expect(prompts.every(([first, second]) => !sameSquare(first, second))).toBe(true);
+  });
+
+  it("recognizes a knight move in either direction", () => {
+    expect(isKnightMove(a1, { file: "b", rank: 3 })).toBe(true);
+    expect(isKnightMove({ file: "b", rank: 3 }, a1)).toBe(true);
+    expect(isKnightMove(a1, { file: "c", rank: 2 })).toBe(true);
+    expect(isKnightMove({ file: "h", rank: 8 }, { file: "g", rank: 6 })).toBe(true);
+    expect(isKnightMove(a1, { file: "b", rank: 2 })).toBe(false);
+    expect(isKnightMove(a1, { file: "a", rank: 1 })).toBe(false);
+  });
+
+  it("generates distinct Knight prompts with balanced valid and invalid answers", () => {
+    const values = [0, 0, 0.75, 0, 0.25, 0, 0.75, 0];
+    const prompts = Array.from({ length: 4 }, () => randomKnightPrompt(() => values.shift() ?? 0));
+
+    expect(prompts.map(([first, second]) => isKnightMove(first, second))).toEqual([true, false, true, false]);
+    expect(prompts.every(([first, second]) => !sameSquare(first, second))).toBe(true);
+  });
+
+  it("scores Knight answers, reveals the correct relation, and records its attempt", () => {
+    const prompt: KnightPrompt = [a1, { file: "b", rank: 3 }];
+    const ready = prepareRound({ training: "knight", prompt });
+    const started = startRoundClock(ready, 1_000);
+    const wrongAnswer: KnightMoveAnswer = "invalid";
+    const answered = answerKnightRound({ state: started, answer: wrongAnswer, now: 1_000 });
+
+    expect(answered).toMatchObject({
+      kind: "running",
+      training: "knight",
+      endsAt: 61_000,
+      correct: 0,
+      answered: 1,
+      feedback: { kind: "incorrect", picked: "invalid", expected: "valid" }
+    });
+
+    expect(finishRound({
+      state: answered,
+      now: 61_000,
+      id: "d254236a-36eb-4284-8b50-4cd0b77bd9b3",
+      completedAt: "2026-10-23T12:00:00.000Z"
+    })).toMatchObject({
+      kind: "finished",
+      attempt: { training: "knight", score: 0, answered: 1, accuracy: 0 }
+    });
+  });
+
+  it("scores a valid Knight move and advances to another pair", () => {
+    const firstPrompt: KnightPrompt = [a1, { file: "b", rank: 3 }];
+    const nextPrompt: KnightPrompt = [a1, { file: "c", rank: 3 }];
+    const ready = prepareRound({ training: "knight", prompt: firstPrompt });
+    const running = startRoundClock(ready, 100);
+    const answered = answerKnightRound({ state: running, answer: "valid", now: 100 });
+    const advanced = advancePairRound(answered, nextPrompt);
+
+    expect(answered).toMatchObject({
+      correct: 1,
+      answered: 1,
+      feedback: { kind: "correct", picked: "valid", expected: "valid" }
+    });
+    expect(advanced).toMatchObject({ kind: "running", prompt: nextPrompt, feedback: null });
   });
 
   it("generates two distinct squares for each comparison", () => {
@@ -92,14 +222,14 @@ describe("training domain", () => {
     const repeated = answerRound({ state: answered, answer: "light", now: 200 });
 
     expect(repeated).toBe(answered);
-    expect(advanceRound(answered, a1)).toMatchObject({ kind: "running", prompt: a1, feedback: null });
+    expect(advanceSquarePromptRound(answered, a1)).toMatchObject({ kind: "running", prompt: a1, feedback: null });
   });
 
   it("scores same-color comparisons and advances to a new pair", () => {
     const ready = prepareRound({ training: "same-color", prompt: [a1, { file: "c", rank: 3 }] });
     const running = startRoundClock(ready, 100);
-    const answered = answerSameColorRound({ state: running, answer: "same", now: 100 });
-    const advanced = advanceSameColorRound(answered, [a1, { file: "b", rank: 1 }]);
+    const answered = answerPairRound({ state: running, answer: "same", now: 100 });
+    const advanced = advancePairRound(answered, [a1, { file: "b", rank: 1 }]);
 
     expect(answered).toMatchObject({
       kind: "running",
@@ -118,7 +248,7 @@ describe("training domain", () => {
   it("reveals the expected relation after an incorrect comparison", () => {
     const ready = prepareRound({ training: "same-color", prompt: [a1, { file: "b", rank: 1 }] });
     const running = startRoundClock(ready, 100);
-    const answered = answerSameColorRound({ state: running, answer: "same", now: 100 });
+    const answered = answerPairRound({ state: running, answer: "same", now: 100 });
 
     expect(answered).toMatchObject({
       correct: 0,
@@ -127,11 +257,75 @@ describe("training domain", () => {
     });
   });
 
+  it("scores a Diagonals answer and records a module-specific attempt", () => {
+    const prompt: DiagonalPrompt = [a1, { file: "h", rank: 8 }];
+    const ready = prepareRound({ training: "diagonals", prompt });
+
+    expect(remainingMs(ready, 90_000)).toBe(60_000);
+
+    const started = startRoundClock(ready, 0);
+    const answered = answerPairRound({ state: started, answer: "same", now: 0 });
+
+    expect(answered).toMatchObject({
+      kind: "running",
+      training: "diagonals",
+      endsAt: 60_000,
+      correct: 1,
+      answered: 1,
+      feedback: { kind: "correct", expected: "same" }
+    });
+    expect(answerPairRound({ state: answered, answer: "different", now: 100 })).toBe(answered);
+
+    expect(finishRound({
+      state: answered,
+      now: 60_000,
+      id: "80db80fb-e633-41ed-82f2-2f1c586a50f3",
+      completedAt: "2026-10-20T12:00:00.000Z"
+    })).toMatchObject({
+      kind: "finished",
+      attempt: { training: "diagonals", score: 1, answered: 1, accuracy: 100 }
+    });
+  });
+
+  it("reveals the Diagonals answer after a wrong response and advances", () => {
+    const firstPrompt: DiagonalPrompt = [a1, { file: "b", rank: 1 }];
+    const nextPrompt: DiagonalPrompt = [a1, { file: "c", rank: 3 }];
+    const ready = prepareRound({ training: "diagonals", prompt: firstPrompt });
+    const started = startRoundClock(ready, 100);
+    const answered = answerPairRound({ state: started, answer: "same", now: 100 });
+    const advanced = advancePairRound(answered, nextPrompt);
+
+    expect(answered).toMatchObject({
+      correct: 0,
+      answered: 1,
+      feedback: { kind: "incorrect", picked: "same", expected: "different" }
+    });
+    expect(advanced).toMatchObject({ kind: "running", prompt: nextPrompt, feedback: null });
+  });
+
+  it("pauses and resumes Diagonals without changing its prompt or feedback", () => {
+    const prompt: DiagonalPrompt = [a1, { file: "h", rank: 8 }];
+    const ready = prepareRound({ training: "diagonals", prompt });
+    const started = startRoundClock(ready, 1_000);
+    const answered = answerPairRound({ state: started, answer: "same", now: 1_000 });
+    const paused = pauseRound(answered, 11_000);
+    const resumed = resumeRound(paused, 90_000);
+
+    expect(paused).toMatchObject({
+      kind: "paused",
+      training: "diagonals",
+      prompt,
+      remainingMs: 50_000,
+      feedback: { kind: "correct", expected: "same" }
+    });
+    expect(resumed).toMatchObject({ kind: "running", prompt, endsAt: 140_000 });
+  });
+
   it("pauses and resumes a Same Color round without changing its prompt", () => {
     const prompt: SameColorPrompt = [a1, { file: "c", rank: 3 }];
     const ready = prepareRound({ training: "same-color", prompt });
     const started = startRoundClock(ready, 1_000);
-    const running = answerSameColorRound({ state: started, answer: "same", now: 1_000 });
+    const running = answerPairRound({ state: started, answer: "same", now: 1_000 });
     const paused = pauseRound(running, 11_000);
     const resumed = resumeRound(paused, 90_000);
 
@@ -165,7 +359,7 @@ describe("training domain", () => {
   it("tags a completed Same Color round with its training module", () => {
     const ready = prepareRound({ training: "same-color", prompt: [a1, { file: "c", rank: 3 }] });
     const started = startRoundClock(ready, 0);
-    const running = answerSameColorRound({ state: started, answer: "different", now: 0 });
+    const running = answerPairRound({ state: started, answer: "different", now: 0 });
     const completed = finishRound({
       state: running,
       now: 60_000,
@@ -215,7 +409,7 @@ describe("training domain", () => {
     const ready = prepareRound({ training: "coordinates", prompt: target });
     const running = startRoundClock(ready, 100);
     const answered = answerCoordinatesRound({ state: running, answer: a1, now: 100 });
-    const advanced = advanceCoordinatesRound(answered, { file: "g", rank: 2 });
+    const advanced = advanceSquarePromptRound(answered, { file: "g", rank: 2 });
 
     expect(answered).toMatchObject({
       correct: 0,
@@ -251,12 +445,36 @@ describe("training domain", () => {
         training: "coordinates",
         score: 18,
         answered: 20
+      }),
+      createAttempt({
+        id: "fa46c387-9a54-4319-a227-2975ed078e2d",
+        completedAt: "2026-10-21T12:00:00.000Z",
+        training: "diagonals",
+        score: 7,
+        answered: 9
+      }),
+      createAttempt({
+        id: "63f22914-ff42-4f80-86f5-92f68b3f5400",
+        completedAt: "2026-10-22T12:00:00.000Z",
+        training: "quadrant",
+        score: 11,
+        answered: 12
+      }),
+      createAttempt({
+        id: "6d057d74-ae2d-4b49-9e45-c8ae0a99b6f1",
+        completedAt: "2026-10-23T12:00:00.000Z",
+        training: "knight",
+        score: 13,
+        answered: 14
       })
     ];
 
     expect(personalBestScore(attempts, "square-colors")).toBe(12);
     expect(personalBestScore(attempts, "same-color")).toBe(9);
     expect(personalBestScore(attempts, "coordinates")).toBe(18);
+    expect(personalBestScore(attempts, "diagonals")).toBe(7);
+    expect(personalBestScore(attempts, "quadrant")).toBe(11);
+    expect(personalBestScore(attempts, "knight")).toBe(13);
     expect(personalBestScore([], "same-color")).toBeNull();
   });
 
@@ -282,11 +500,38 @@ describe("training domain", () => {
         training: "coordinates",
         score: 18,
         answered: 20
+      }),
+      createAttempt({
+        id: "fa46c387-9a54-4319-a227-2975ed078e2d",
+        completedAt: "2026-10-21T12:00:00.000Z",
+        training: "diagonals",
+        score: 7,
+        answered: 9
+      }),
+      createAttempt({
+        id: "63f22914-ff42-4f80-86f5-92f68b3f5400",
+        completedAt: "2026-10-22T12:00:00.000Z",
+        training: "quadrant",
+        score: 11,
+        answered: 12
+      }),
+      createAttempt({
+        id: "6d057d74-ae2d-4b49-9e45-c8ae0a99b6f1",
+        completedAt: "2026-10-23T12:00:00.000Z",
+        training: "knight",
+        score: 13,
+        answered: 14
       })
     ];
 
     expect(attemptsForTraining(attempts, "coordinates").map(({ training, score }) => [training, score]))
       .toEqual([["coordinates", 18]]);
+    expect(attemptsForTraining(attempts, "diagonals").map(({ training, score }) => [training, score]))
+      .toEqual([["diagonals", 7]]);
+    expect(attemptsForTraining(attempts, "quadrant").map(({ training, score }) => [training, score]))
+      .toEqual([["quadrant", 11]]);
+    expect(attemptsForTraining(attempts, "knight").map(({ training, score }) => [training, score]))
+      .toEqual([["knight", 13]]);
     expect(attemptsForTraining(attempts, "square-colors").map(({ training, score }) => [training, score]))
       .toEqual([["square-colors", 12]]);
     expect(attemptsForTraining(attempts, "same-color").map(({ training, score }) => [training, score]))

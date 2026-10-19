@@ -15,36 +15,45 @@ import {
   X
 } from "lucide-react";
 import {
-  advanceCoordinatesRound,
-  advanceSameColorRound,
-  advanceRound,
+  advancePairRound,
+  advanceSquarePromptRound,
   answerCoordinatesRound,
-  answerSameColorRound,
+  answerKnightRound,
+  answerQuadrantRound,
+  answerPairRound,
   answerRound,
   attemptsForTraining,
   finishRound,
   personalBestScore,
   pauseRound,
   prepareRound,
+  QUADRANT_DEFINITIONS,
+  randomDiagonalPrompt,
+  randomKnightPrompt,
   randomSameColorPrompt,
   randomSquare,
   remainingMs,
   resumeRound,
   sameSquare,
   squareColor,
-  startRoundClock
+  startRoundClock,
+  TrainingModuleSchema
 } from "./domain";
 import type {
   Attempt,
   CoordinatesFeedback,
+  KnightMoveAnswer,
+  PairRelation,
+  QuadrantNumber,
   ReadyRound,
   RoundState,
-  SameColorAnswer,
   Square,
   SquareColor,
   TrainingModule
 } from "./domain";
 import { clearAttemptHistory, readAttempts, saveAttempt } from "./storage";
+import type { ThemePreference } from "./preferences";
+import { useThemePreference } from "./useThemePreference";
 
 interface BeforeInstallPromptEvent extends Event {
   prompt(): Promise<void>;
@@ -58,21 +67,24 @@ declare global {
 }
 
 type Screen = "home" | "history" | "round" | "results";
+type ActiveRound = Exclude<RoundState, { kind: "idle" | "finished" }>;
 type AnswerSubmission =
   | { training: "square-colors"; answer: SquareColor }
-  | { training: "same-color"; answer: SameColorAnswer }
-  | { training: "coordinates"; answer: Square };
+  | { training: "same-color"; answer: PairRelation }
+  | { training: "coordinates"; answer: Square }
+  | { training: "diagonals"; answer: PairRelation }
+  | { training: "quadrant"; answer: QuadrantNumber }
+  | { training: "knight"; answer: KnightMoveAnswer };
+type PairTraining = Extract<TrainingModule, "same-color" | "diagonals" | "knight">;
 
-const trainingModules: TrainingModule[] = ["square-colors", "same-color", "coordinates"];
-
-function trainingTitle(training: TrainingModule): string {
+function pairAnswer(training: PairTraining, positive: boolean): AnswerSubmission {
   switch (training) {
-    case "square-colors":
-      return "Square Colors";
     case "same-color":
-      return "Same Color";
-    case "coordinates":
-      return "Coordinates";
+      return { training, answer: positive ? "same" : "different" };
+    case "diagonals":
+      return { training, answer: positive ? "same" : "different" };
+    case "knight":
+      return { training, answer: positive ? "valid" : "invalid" };
     default: {
       const _exhaustive: never = training;
       return _exhaustive;
@@ -80,19 +92,58 @@ function trainingTitle(training: TrainingModule): string {
   }
 }
 
-function trainingDescription(training: TrainingModule): string {
-  switch (training) {
-    case "square-colors":
-      return "Name the color of one square at a time";
-    case "same-color":
-      return "Compare the color of two squares";
-    case "coordinates":
-      return "Find the named square on the board";
-    default: {
-      const _exhaustive: never = training;
-      return _exhaustive;
-    }
+const trainingModules = TrainingModuleSchema.options;
+
+const trainingModuleMetadata = {
+  "square-colors": {
+    title: "Square Colors",
+    description: "Name the color of one square at a time",
+    questionLabel: "Square color question",
+    questionPrompt: "WHAT COLOR IS THIS SQUARE?"
+  },
+  "same-color": {
+    title: "Same Color",
+    description: "Compare the color of two squares",
+    questionLabel: "Same color question",
+    questionPrompt: "DO THESE SQUARES SHARE A COLOR?"
+  },
+  coordinates: {
+    title: "Coordinates",
+    description: "Find the named square on the board",
+    questionLabel: "Coordinates question",
+    questionPrompt: "FIND THIS SQUARE"
+  },
+  diagonals: {
+    title: "Diagonals",
+    description: "Decide whether two squares share a diagonal",
+    questionLabel: "Diagonals question",
+    questionPrompt: "DO THESE SQUARES SHARE A DIAGONAL?"
+  },
+  quadrant: {
+    title: "Quadrant",
+    description: "Identify which quadrant contains each square",
+    questionLabel: "Quadrant question",
+    questionPrompt: "WHICH QUADRANT CONTAINS THIS SQUARE?"
+  },
+  knight: {
+    title: "Knight",
+    description: "Check whether a knight can move between two squares",
+    questionLabel: "Knight move question",
+    questionPrompt: "CAN A KNIGHT MOVE BETWEEN THESE SQUARES?"
   }
+} satisfies Record<TrainingModule, {
+  title: string;
+  description: string;
+  questionLabel: string;
+  questionPrompt: string;
+}>;
+
+function trainingTitle(training: TrainingModule): string {
+  return trainingModuleMetadata[training].title;
+}
+
+function trainingDescription(training: TrainingModule): string {
+  return trainingModuleMetadata[training].description;
 }
 
 function BrandMark() {
@@ -102,6 +153,33 @@ function BrandMark() {
         <span key={index} />
       ))}
     </span>
+  );
+}
+
+function ThemeControl({
+  preference,
+  onChange
+}: {
+  preference: ThemePreference;
+  onChange: (preference: ThemePreference) => void;
+}) {
+  return (
+    <fieldset className="theme-control">
+      <legend>Color theme</legend>
+      <span className="theme-control-label" aria-hidden="true">Theme</span>
+      {(["system", "light", "dark"] as const).map((option) => (
+        <label className="theme-option" key={option}>
+          <input
+            type="radio"
+            name="color-theme"
+            value={option}
+            checked={preference === option}
+            onChange={() => onChange(option)}
+          />
+          <span>{option[0]?.toUpperCase()}{option.slice(1)}</span>
+        </label>
+      ))}
+    </fieldset>
   );
 }
 
@@ -181,6 +259,30 @@ function CoordinateBoard({
   );
 }
 
+function QuadrantAnswerControls({
+  disabled,
+  onSelect
+}: {
+  disabled: boolean;
+  onSelect: (quadrant: QuadrantNumber) => void;
+}) {
+  return (
+    <div className="quadrant-answer-controls" role="group" aria-label="Choose the quadrant containing the square">
+      {QUADRANT_DEFINITIONS.map(({ number }) => (
+        <button
+          className="quadrant-answer-button"
+          type="button"
+          key={number}
+          disabled={disabled}
+          onClick={() => onSelect(number)}
+        >
+          Quadrant {number}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 function Dialog({ title, onClose, children }: { title: string; onClose: () => void; children: ReactNode }) {
   const dialogRef = useRef<HTMLDialogElement>(null);
 
@@ -234,6 +336,33 @@ function PersonalBest({ attempts, training }: { attempts: Attempt[]; training: T
   return <>{best === null ? "--" : best}</>;
 }
 
+function incorrectAnswerMessage(round: ActiveRound): string {
+  if (round.feedback?.kind !== "incorrect") {
+    return "";
+  }
+
+  switch (round.training) {
+    case "square-colors":
+      return `It is ${round.feedback.expected}`;
+    case "same-color":
+      return round.feedback.expected === "same" ? "They are the same color" : "They are different colors";
+    case "coordinates":
+      return `That square is ${round.feedback.expected.file}${round.feedback.expected.rank}`;
+    case "diagonals":
+      return round.feedback.expected === "same" ? "They share a diagonal" : "They do not share a diagonal";
+    case "quadrant":
+      return `That square is in Quadrant ${round.feedback.expected}`;
+    case "knight":
+      return round.feedback.expected === "valid"
+        ? "A knight can move between these squares"
+        : "A knight cannot move between these squares";
+    default: {
+      const _exhaustive: never = round;
+      return _exhaustive;
+    }
+  }
+}
+
 function App() {
   const [screen, setScreen] = useState<Screen>("home");
   const [selectedTraining, setSelectedTraining] = useState<TrainingModule>("square-colors");
@@ -241,6 +370,7 @@ function App() {
   const [round, setRound] = useState<RoundState>({ kind: "idle" });
   const roundRef = useRef(round);
   const [attempts, setAttempts] = useState<Attempt[]>(readAttempts);
+  const { preference: themePreference, setPreference: selectTheme } = useThemePreference();
   const [secondsLeft, setSecondsLeft] = useState(60);
   const [ruleOpen, setRuleOpen] = useState(false);
   const [installHelpOpen, setInstallHelpOpen] = useState(false);
@@ -336,11 +466,20 @@ function App() {
       }
 
       if (current.training === "square-colors") {
-        updateRound(advanceRound(current, randomSquare()));
+        updateRound(advanceSquarePromptRound(current, randomSquare()));
       } else if (current.training === "same-color") {
-        updateRound(advanceSameColorRound(current, randomSameColorPrompt()));
+        updateRound(advancePairRound(current, randomSameColorPrompt()));
+      } else if (current.training === "coordinates") {
+        updateRound(advanceSquarePromptRound(current, randomSquare()));
+      } else if (current.training === "diagonals") {
+        updateRound(advancePairRound(current, randomDiagonalPrompt()));
+      } else if (current.training === "quadrant") {
+        updateRound(advanceSquarePromptRound(current, randomSquare()));
+      } else if (current.training === "knight") {
+        updateRound(advancePairRound(current, randomKnightPrompt()));
       } else {
-        updateRound(advanceCoordinatesRound(current, randomSquare()));
+        const _exhaustive: never = current;
+        return _exhaustive;
       }
     }, 430);
 
@@ -369,6 +508,15 @@ function App() {
         break;
       case "coordinates":
         ready = prepareRound({ training, prompt: randomSquare() });
+        break;
+      case "diagonals":
+        ready = prepareRound({ training, prompt: randomDiagonalPrompt() });
+        break;
+      case "quadrant":
+        ready = prepareRound({ training, prompt: randomSquare() });
+        break;
+      case "knight":
+        ready = prepareRound({ training, prompt: randomKnightPrompt() });
         break;
       default: {
         const _exhaustive: never = training;
@@ -419,16 +567,29 @@ function App() {
         updateRound(answerRound({ state: running, answer: submission.answer, now }));
         break;
       case "same-color":
-        if (running.training !== "same-color") {
+      case "diagonals":
+        if (running.training !== submission.training) {
           return;
         }
-        updateRound(answerSameColorRound({ state: running, answer: submission.answer, now }));
+        updateRound(answerPairRound({ state: running, answer: submission.answer, now }));
         break;
       case "coordinates":
         if (running.training !== "coordinates") {
           return;
         }
         updateRound(answerCoordinatesRound({ state: running, answer: submission.answer, now }));
+        break;
+      case "quadrant":
+        if (running.training !== "quadrant") {
+          return;
+        }
+        updateRound(answerQuadrantRound({ state: running, answer: submission.answer, now }));
+        break;
+      case "knight":
+        if (running.training !== "knight") {
+          return;
+        }
+        updateRound(answerKnightRound({ state: running, answer: submission.answer, now }));
         break;
       default: {
         const _exhaustive: never = submission;
@@ -444,7 +605,11 @@ function App() {
       }
 
       const current = roundRef.current;
-      if ((current.kind !== "ready" && current.kind !== "running") || current.training === "coordinates") {
+      if (
+        (current.kind !== "ready" && current.kind !== "running") ||
+        current.training === "coordinates" ||
+        current.training === "quadrant"
+      ) {
         return;
       }
 
@@ -452,12 +617,12 @@ function App() {
         event.preventDefault();
         submitAnswer(current.training === "square-colors"
           ? { training: "square-colors", answer: "light" }
-          : { training: "same-color", answer: "different" });
+          : pairAnswer(current.training, false));
       } else if (event.key === "ArrowRight") {
         event.preventDefault();
         submitAnswer(current.training === "square-colors"
           ? { training: "square-colors", answer: "dark" }
-          : { training: "same-color", answer: "same" });
+          : pairAnswer(current.training, true));
       }
     };
 
@@ -527,12 +692,13 @@ function App() {
             <Download size={16} /> <span>Install</span>
           </button>
         </nav>
+        <ThemeControl preference={themePreference} onChange={selectTheme} />
       </header>
 
       {screen === "home" && (
         <main className="training-hub page-width">
           <header className="training-hub-heading">
-            <p className="eyebrow"><span className="eyebrow-dot" /> FOUNDATIONS <span>3 DRILLS</span></p>
+            <p className="eyebrow"><span className="eyebrow-dot" /> FOUNDATIONS <span>{trainingModules.length} DRILLS</span></p>
             <h1>Choose a drill</h1>
           </header>
           <section className="training-options" aria-label="Training modules">
@@ -577,16 +743,10 @@ function App() {
 
           <section
             className={`question-zone${round.training === "coordinates" ? " coordinate-question-zone" : ""}`}
-            aria-label={
-              round.training === "square-colors" ? "Square color question" :
-                round.training === "same-color" ? "Same color question" : "Coordinates question"
-            }
+            aria-label={trainingModuleMetadata[round.training].questionLabel}
           >
-            <p className="question-kicker">
-              {round.training === "square-colors" ? "WHAT COLOR IS THIS SQUARE?" :
-                round.training === "same-color" ? "DO THESE SQUARES SHARE A COLOR?" : "FIND THIS SQUARE"}
-            </p>
-            {round.training === "same-color" ? (
+            <p className="question-kicker">{trainingModuleMetadata[round.training].questionPrompt}</p>
+            {round.training === "same-color" || round.training === "diagonals" || round.training === "knight" ? (
               <div className="coordinate-pair" aria-live="polite" aria-atomic="true">
                 <span className="coordinate">{round.prompt[0].file}{round.prompt[0].rank}</span>
                 <span className="coordinate-pair-divider" aria-hidden="true">?</span>
@@ -601,44 +761,51 @@ function App() {
               ) : round.feedback?.kind === "incorrect" ? (
                 <>
                   <X size={17} />
-                  {round.training === "square-colors" ? `It is ${round.feedback.expected}` :
-                    round.training === "same-color"
-                      ? round.feedback.expected === "same" ? "They are the same color" : "They are different colors"
-                      : `That square is ${round.feedback.expected.file}${round.feedback.expected.rank}`}
+                  {incorrectAnswerMessage(round)}
                 </>
               ) : <span aria-hidden="true">&nbsp;</span>}
             </div>
           </section>
 
-          {round.training === "coordinates" ? (
+          {round.training === "quadrant" ? (
+            <QuadrantAnswerControls
+              disabled={round.feedback !== null || round.kind === "paused"}
+              onSelect={(answer) => submitAnswer({ training: "quadrant", answer })}
+            />
+          ) : round.training === "coordinates" ? (
             <CoordinateBoard
               feedback={round.feedback}
               disabled={round.feedback !== null || round.kind === "paused"}
               onSelect={(square) => submitAnswer({ training: "coordinates", answer: square })}
             />
           ) : (
-            <div className="answer-controls" aria-label={round.training === "square-colors" ? "Choose square color" : "Choose whether the squares share a color"}>
+            <div className="answer-controls" aria-label={
+              round.training === "square-colors" ? "Choose square color" :
+                round.training === "diagonals" ? "Choose whether the squares share a diagonal" :
+                  round.training === "knight" ? "Choose whether a knight can move between these squares" :
+                    "Choose whether the squares share a color"
+            }>
               <button
                 className="answer-button answer-button--light"
                 type="button"
                 onClick={() => submitAnswer(round.training === "square-colors"
                   ? { training: "square-colors", answer: "light" }
-                  : { training: "same-color", answer: "different" })}
+                  : pairAnswer(round.training, false))}
                 disabled={round.feedback !== null || round.kind === "paused"}
               >
                 <ArrowLeft className="answer-direction" size={19} aria-hidden="true" />
-                {round.training === "square-colors" ? "Light" : "Different"}
+                {round.training === "square-colors" ? "Light" : round.training === "knight" ? "No" : "Different"}
               </button>
               <button
                 className="answer-button answer-button--dark"
                 type="button"
                 onClick={() => submitAnswer(round.training === "square-colors"
                   ? { training: "square-colors", answer: "dark" }
-                  : { training: "same-color", answer: "same" })}
+                  : pairAnswer(round.training, true))}
                 disabled={round.feedback !== null || round.kind === "paused"}
               >
                 <ArrowRight className="answer-direction" size={19} aria-hidden="true" />
-                {round.training === "square-colors" ? "Dark" : "Same"}
+                {round.training === "square-colors" ? "Dark" : round.training === "knight" ? "Yes" : "Same"}
               </button>
             </div>
           )}
@@ -759,6 +926,31 @@ function App() {
               <div className="rule-detail">
                 <p><strong>a1 and c3 are both dark.</strong> Two squares share a color when their file-plus-rank totals have the same parity.</p>
                 <p>For example, a1 and c3 match, while a1 and b1 differ. A diagonal step changes both file and rank, so it stays on the same color.</p>
+              </div>
+            </div>
+          ) : selectedTraining === "diagonals" ? (
+            <div className="rule-detail coordinate-rule-detail">
+              <p><strong>Diagonal squares share a color.</strong> They lie on the same diagonal when their file and rank differences are equal in magnitude.</p>
+              <p>Same color alone does not prove that two squares lie on the same diagonal.</p>
+            </div>
+          ) : selectedTraining === "knight" ? (
+            <div className="rule-detail coordinate-rule-detail">
+              <p><strong>A knight moves in an L:</strong> two squares in one direction, then one square perpendicular.</p>
+              <p>The file and rank distances must be one and two, in either order. A knight can jump over other squares.</p>
+            </div>
+          ) : selectedTraining === "quadrant" ? (
+            <div className="quadrant-rule-content">
+              <div className="quadrant-map" role="group" aria-label="Quadrant number ranges">
+                {QUADRANT_DEFINITIONS.map(({ number, label }) => (
+                  <div className="quadrant-map-cell" key={number}>
+                    <strong>Quadrant {number}</strong>
+                    <span>{label}</span>
+                  </div>
+                ))}
+              </div>
+              <div className="rule-detail">
+                <p>Files <strong>a-d</strong> are on the left and <strong>e-h</strong> on the right. Ranks <strong>5-8</strong> are above ranks <strong>1-4</strong>.</p>
+                <p>Practice one quadrant range at a time. Move to the next when its squares come to mind quickly.</p>
               </div>
             </div>
           ) : (
