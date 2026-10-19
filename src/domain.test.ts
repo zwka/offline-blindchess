@@ -1,9 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
-  advanceCoordinatesRound,
   advancePairRound,
-  advanceQuadrantRound,
-  advanceRound,
+  advanceSquarePromptRound,
   answerCoordinatesRound,
   answerQuadrantRound,
   answerPairRound,
@@ -84,7 +82,7 @@ describe("training domain", () => {
     const ready = prepareRound({ training: "quadrant", prompt: firstPrompt });
     const running = startRoundClock(ready, 100);
     const answered = answerQuadrantRound({ state: running, answer: 3, now: 100 });
-    const advanced = advanceQuadrantRound(answered, nextPrompt);
+    const advanced = advanceSquarePromptRound(answered, nextPrompt);
 
     expect(answered).toMatchObject({ correct: 1, answered: 1, feedback: { expected: 3 } });
     expect(advanced).toMatchObject({ kind: "running", prompt: nextPrompt, feedback: null });
@@ -161,7 +159,7 @@ describe("training domain", () => {
     const repeated = answerRound({ state: answered, answer: "light", now: 200 });
 
     expect(repeated).toBe(answered);
-    expect(advanceRound(answered, a1)).toMatchObject({ kind: "running", prompt: a1, feedback: null });
+    expect(advanceSquarePromptRound(answered, a1)).toMatchObject({ kind: "running", prompt: a1, feedback: null });
   });
 
   it("scores same-color comparisons and advances to a new pair", () => {
@@ -348,7 +346,7 @@ describe("training domain", () => {
     const ready = prepareRound({ training: "coordinates", prompt: target });
     const running = startRoundClock(ready, 100);
     const answered = answerCoordinatesRound({ state: running, answer: a1, now: 100 });
-    const advanced = advanceCoordinatesRound(answered, { file: "g", rank: 2 });
+    const advanced = advanceSquarePromptRound(answered, { file: "g", rank: 2 });
 
     expect(answered).toMatchObject({
       correct: 0,

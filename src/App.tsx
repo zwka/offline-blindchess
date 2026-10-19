@@ -15,10 +15,8 @@ import {
   X
 } from "lucide-react";
 import {
-  advanceCoordinatesRound,
-  advanceQuadrantRound,
   advancePairRound,
-  advanceRound,
+  advanceSquarePromptRound,
   answerCoordinatesRound,
   answerQuadrantRound,
   answerPairRound,
@@ -66,6 +64,7 @@ declare global {
 }
 
 type Screen = "home" | "history" | "round" | "results";
+type ActiveRound = Exclude<RoundState, { kind: "idle" | "finished" }>;
 type AnswerSubmission =
   | { training: "square-colors"; answer: SquareColor }
   | { training: "same-color"; answer: PairRelation }
@@ -78,25 +77,40 @@ const trainingModules = TrainingModuleSchema.options;
 const trainingModuleMetadata = {
   "square-colors": {
     title: "Square Colors",
-    description: "Name the color of one square at a time"
+    description: "Name the color of one square at a time",
+    questionLabel: "Square color question",
+    questionPrompt: "WHAT COLOR IS THIS SQUARE?"
   },
   "same-color": {
     title: "Same Color",
-    description: "Compare the color of two squares"
+    description: "Compare the color of two squares",
+    questionLabel: "Same color question",
+    questionPrompt: "DO THESE SQUARES SHARE A COLOR?"
   },
   coordinates: {
     title: "Coordinates",
-    description: "Find the named square on the board"
+    description: "Find the named square on the board",
+    questionLabel: "Coordinates question",
+    questionPrompt: "FIND THIS SQUARE"
   },
   diagonals: {
     title: "Diagonals",
-    description: "Decide whether two squares share a diagonal"
+    description: "Decide whether two squares share a diagonal",
+    questionLabel: "Diagonals question",
+    questionPrompt: "DO THESE SQUARES SHARE A DIAGONAL?"
   },
   quadrant: {
     title: "Quadrant",
-    description: "Identify which quadrant contains each square"
+    description: "Identify which quadrant contains each square",
+    questionLabel: "Quadrant question",
+    questionPrompt: "WHICH QUADRANT CONTAINS THIS SQUARE?"
   }
-} satisfies Record<TrainingModule, { title: string; description: string }>;
+} satisfies Record<TrainingModule, {
+  title: string;
+  description: string;
+  questionLabel: string;
+  questionPrompt: string;
+}>;
 
 function trainingTitle(training: TrainingModule): string {
   return trainingModuleMetadata[training].title;
@@ -296,6 +310,29 @@ function PersonalBest({ attempts, training }: { attempts: Attempt[]; training: T
   return <>{best === null ? "--" : best}</>;
 }
 
+function incorrectAnswerMessage(round: ActiveRound): string {
+  if (round.feedback?.kind !== "incorrect") {
+    return "";
+  }
+
+  switch (round.training) {
+    case "square-colors":
+      return `It is ${round.feedback.expected}`;
+    case "same-color":
+      return round.feedback.expected === "same" ? "They are the same color" : "They are different colors";
+    case "coordinates":
+      return `That square is ${round.feedback.expected.file}${round.feedback.expected.rank}`;
+    case "diagonals":
+      return round.feedback.expected === "same" ? "They share a diagonal" : "They do not share a diagonal";
+    case "quadrant":
+      return `That square is in Quadrant ${round.feedback.expected}`;
+    default: {
+      const _exhaustive: never = round;
+      return _exhaustive;
+    }
+  }
+}
+
 function App() {
   const [screen, setScreen] = useState<Screen>("home");
   const [selectedTraining, setSelectedTraining] = useState<TrainingModule>("square-colors");
@@ -399,15 +436,15 @@ function App() {
       }
 
       if (current.training === "square-colors") {
-        updateRound(advanceRound(current, randomSquare()));
+        updateRound(advanceSquarePromptRound(current, randomSquare()));
       } else if (current.training === "same-color") {
         updateRound(advancePairRound(current, randomSameColorPrompt()));
       } else if (current.training === "coordinates") {
-        updateRound(advanceCoordinatesRound(current, randomSquare()));
+        updateRound(advanceSquarePromptRound(current, randomSquare()));
       } else if (current.training === "diagonals") {
         updateRound(advancePairRound(current, randomDiagonalPrompt()));
       } else {
-        updateRound(advanceQuadrantRound(current, randomSquare()));
+        updateRound(advanceSquarePromptRound(current, randomSquare()));
       }
     }, 430);
 
@@ -666,19 +703,9 @@ function App() {
 
           <section
             className={`question-zone${round.training === "coordinates" ? " coordinate-question-zone" : ""}`}
-            aria-label={
-              round.training === "square-colors" ? "Square color question" :
-                round.training === "same-color" ? "Same color question" :
-                  round.training === "diagonals" ? "Diagonals question" :
-                    round.training === "quadrant" ? "Quadrant question" : "Coordinates question"
-            }
+            aria-label={trainingModuleMetadata[round.training].questionLabel}
           >
-            <p className="question-kicker">
-              {round.training === "square-colors" ? "WHAT COLOR IS THIS SQUARE?" :
-                round.training === "same-color" ? "DO THESE SQUARES SHARE A COLOR?" :
-                  round.training === "diagonals" ? "DO THESE SQUARES SHARE A DIAGONAL?" :
-                    round.training === "quadrant" ? "WHICH QUADRANT CONTAINS THIS SQUARE?" : "FIND THIS SQUARE"}
-            </p>
+            <p className="question-kicker">{trainingModuleMetadata[round.training].questionPrompt}</p>
             {round.training === "same-color" || round.training === "diagonals" ? (
               <div className="coordinate-pair" aria-live="polite" aria-atomic="true">
                 <span className="coordinate">{round.prompt[0].file}{round.prompt[0].rank}</span>
@@ -694,14 +721,7 @@ function App() {
               ) : round.feedback?.kind === "incorrect" ? (
                 <>
                   <X size={17} />
-                  {round.training === "square-colors" ? `It is ${round.feedback.expected}` :
-                    round.training === "same-color" || round.training === "diagonals"
-                      ? round.training === "diagonals"
-                        ? round.feedback.expected === "same" ? "They share a diagonal" : "They do not share a diagonal"
-                        : round.feedback.expected === "same" ? "They are the same color" : "They are different colors"
-                      : round.training === "quadrant"
-                        ? `That square is in Quadrant ${round.feedback.expected}`
-                      : `That square is ${round.feedback.expected.file}${round.feedback.expected.rank}`}
+                  {incorrectAnswerMessage(round)}
                 </>
               ) : <span aria-hidden="true">&nbsp;</span>}
             </div>

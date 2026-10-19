@@ -10,10 +10,10 @@ const FileSchema = z.enum(files);
 const RankSchema = z.number().int().min(1).max(8);
 
 export const QUADRANT_DEFINITIONS = [
-  { number: 1, files: ["a", "d"], ranks: [5, 8], label: "a-d / 5-8" },
-  { number: 2, files: ["e", "h"], ranks: [5, 8], label: "e-h / 5-8" },
-  { number: 3, files: ["a", "d"], ranks: [1, 4], label: "a-d / 1-4" },
-  { number: 4, files: ["e", "h"], ranks: [1, 4], label: "e-h / 1-4" }
+  { number: 1, fileRange: ["a", "d"], rankRange: [5, 8], label: "a-d / 5-8" },
+  { number: 2, fileRange: ["e", "h"], rankRange: [5, 8], label: "e-h / 5-8" },
+  { number: 3, fileRange: ["a", "d"], rankRange: [1, 4], label: "a-d / 1-4" },
+  { number: 4, fileRange: ["e", "h"], rankRange: [1, 4], label: "e-h / 1-4" }
 ] as const;
 
 export type QuadrantNumber = typeof QUADRANT_DEFINITIONS[number]["number"];
@@ -75,6 +75,24 @@ type Feedback<Answer> = {
   picked: Answer;
   expected: Answer;
 };
+
+function recordAnswer<Answer>(input: {
+  answered: number;
+  correct: number;
+  picked: Answer;
+  expected: Answer;
+  isCorrect: boolean;
+}): { answered: number; correct: number; feedback: Feedback<Answer> } {
+  return {
+    answered: input.answered + 1,
+    correct: input.correct + Number(input.isCorrect),
+    feedback: {
+      kind: input.isCorrect ? "correct" : "incorrect",
+      picked: input.picked,
+      expected: input.expected
+    }
+  };
+}
 
 type SquareColorsSnapshot = {
   training: "square-colors";
@@ -156,6 +174,7 @@ type SameColorRunningRound = Extract<RunningRound, { training: "same-color" }>;
 type CoordinatesRunningRound = Extract<RunningRound, { training: "coordinates" }>;
 type DiagonalsRunningRound = Extract<RunningRound, { training: "diagonals" }>;
 type QuadrantRunningRound = Extract<RunningRound, { training: "quadrant" }>;
+type SquarePromptRunningRound = SquareColorsRunningRound | CoordinatesRunningRound | QuadrantRunningRound;
 
 export function squareColor(square: Square): SquareColor {
   const fileNumber = files.indexOf(square.file) + 1;
@@ -164,7 +183,7 @@ export function squareColor(square: Square): SquareColor {
 
 export function quadrantForSquare(square: Square): QuadrantNumber {
   const fileIndex = files.indexOf(square.file);
-  const quadrant = QUADRANT_DEFINITIONS.find(({ files: fileRange, ranks: rankRange }) =>
+  const quadrant = QUADRANT_DEFINITIONS.find(({ fileRange, rankRange }) =>
     fileIndex >= files.indexOf(fileRange[0]) &&
     fileIndex <= files.indexOf(fileRange[1]) &&
     square.rank >= rankRange[0] &&
@@ -335,13 +354,13 @@ export function answerRound(input: {
 
   return {
     ...state,
-    answered: state.answered + 1,
-    correct: state.correct + Number(isCorrect),
-    feedback: {
-      kind: isCorrect ? "correct" : "incorrect",
+    ...recordAnswer({
+      answered: state.answered,
+      correct: state.correct,
       picked: input.answer,
-      expected
-    }
+      expected,
+      isCorrect
+    })
   };
 }
 
@@ -360,13 +379,13 @@ export function answerQuadrantRound(input: {
 
   return {
     ...state,
-    answered: state.answered + 1,
-    correct: state.correct + Number(isCorrect),
-    feedback: {
-      kind: isCorrect ? "correct" : "incorrect",
+    ...recordAnswer({
+      answered: state.answered,
+      correct: state.correct,
       picked: input.answer,
-      expected
-    }
+      expected,
+      isCorrect
+    })
   };
 }
 
@@ -390,13 +409,13 @@ export function answerPairRound(input: {
 
   return {
     ...state,
-    answered: state.answered + 1,
-    correct: state.correct + Number(isCorrect),
-    feedback: {
-      kind: isCorrect ? "correct" : "incorrect",
+    ...recordAnswer({
+      answered: state.answered,
+      correct: state.correct,
       picked: input.answer,
-      expected
-    }
+      expected,
+      isCorrect
+    })
   };
 }
 
@@ -415,17 +434,20 @@ export function answerCoordinatesRound(input: {
 
   return {
     ...state,
-    answered: state.answered + 1,
-    correct: state.correct + Number(isCorrect),
-    feedback: {
-      kind: isCorrect ? "correct" : "incorrect",
+    ...recordAnswer({
+      answered: state.answered,
+      correct: state.correct,
       picked: input.answer,
-      expected
-    }
+      expected,
+      isCorrect
+    })
   };
 }
 
-export function advanceRound(state: SquareColorsRunningRound, nextPrompt: Square): SquareColorsRunningRound {
+export function advanceSquarePromptRound(
+  state: SquarePromptRunningRound,
+  nextPrompt: Square
+): SquarePromptRunningRound {
   if (state.feedback === null) {
     return state;
   }
@@ -437,28 +459,6 @@ export function advancePairRound(
   state: PairRunningRound,
   nextPrompt: SameColorPrompt | DiagonalPrompt
 ): PairRunningRound {
-  if (state.feedback === null) {
-    return state;
-  }
-
-  return { ...state, prompt: nextPrompt, feedback: null };
-}
-
-export function advanceCoordinatesRound(
-  state: CoordinatesRunningRound,
-  nextPrompt: Square
-): CoordinatesRunningRound {
-  if (state.feedback === null) {
-    return state;
-  }
-
-  return { ...state, prompt: nextPrompt, feedback: null };
-}
-
-export function advanceQuadrantRound(
-  state: QuadrantRunningRound,
-  nextPrompt: Square
-): QuadrantRunningRound {
   if (state.feedback === null) {
     return state;
   }
