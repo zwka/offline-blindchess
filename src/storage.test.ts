@@ -65,13 +65,25 @@ describe("attempt history storage", () => {
       9,
       "coordinates"
     );
+    const diagonals = attempt(
+      "fa46c387-9a54-4319-a227-2975ed078e2d",
+      "2026-10-21T12:00:00.000Z",
+      11,
+      "diagonals"
+    );
 
     saveAttempt(squareColors);
     saveAttempt(sameColor);
-    const result = saveAttempt(coordinates);
+    saveAttempt(coordinates);
+    const result = saveAttempt(diagonals);
 
-    expect(result.attempts.map(({ training }) => training)).toEqual(["coordinates", "same-color", "square-colors"]);
-    expect(readAttempts()).toEqual([coordinates, sameColor, squareColors]);
+    expect(result.attempts.map(({ training }) => training)).toEqual([
+      "diagonals",
+      "coordinates",
+      "same-color",
+      "square-colors"
+    ]);
+    expect(readAttempts()).toEqual([diagonals, coordinates, sameColor, squareColors]);
   });
 
   it("reads saved attempts without a module as Square Colors", () => {
