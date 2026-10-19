@@ -75,6 +75,22 @@ type AnswerSubmission =
   | { training: "diagonals"; answer: PairRelation }
   | { training: "quadrant"; answer: QuadrantNumber }
   | { training: "knight"; answer: KnightMoveAnswer };
+type PairTraining = Extract<TrainingModule, "same-color" | "diagonals" | "knight">;
+
+function pairAnswer(training: PairTraining, positive: boolean): AnswerSubmission {
+  switch (training) {
+    case "same-color":
+      return { training, answer: positive ? "same" : "different" };
+    case "diagonals":
+      return { training, answer: positive ? "same" : "different" };
+    case "knight":
+      return { training, answer: positive ? "valid" : "invalid" };
+    default: {
+      const _exhaustive: never = training;
+      return _exhaustive;
+    }
+  }
+}
 
 const trainingModules = TrainingModuleSchema.options;
 
@@ -601,20 +617,12 @@ function App() {
         event.preventDefault();
         submitAnswer(current.training === "square-colors"
           ? { training: "square-colors", answer: "light" }
-          : current.training === "same-color"
-            ? { training: "same-color", answer: "different" }
-            : current.training === "diagonals"
-              ? { training: "diagonals", answer: "different" }
-              : { training: "knight", answer: "invalid" });
+          : pairAnswer(current.training, false));
       } else if (event.key === "ArrowRight") {
         event.preventDefault();
         submitAnswer(current.training === "square-colors"
           ? { training: "square-colors", answer: "dark" }
-          : current.training === "same-color"
-            ? { training: "same-color", answer: "same" }
-            : current.training === "diagonals"
-              ? { training: "diagonals", answer: "same" }
-              : { training: "knight", answer: "valid" });
+          : pairAnswer(current.training, true));
       }
     };
 
@@ -782,11 +790,7 @@ function App() {
                 type="button"
                 onClick={() => submitAnswer(round.training === "square-colors"
                   ? { training: "square-colors", answer: "light" }
-                  : round.training === "same-color"
-                    ? { training: "same-color", answer: "different" }
-                    : round.training === "diagonals"
-                      ? { training: "diagonals", answer: "different" }
-                      : { training: "knight", answer: "invalid" })}
+                  : pairAnswer(round.training, false))}
                 disabled={round.feedback !== null || round.kind === "paused"}
               >
                 <ArrowLeft className="answer-direction" size={19} aria-hidden="true" />
@@ -797,11 +801,7 @@ function App() {
                 type="button"
                 onClick={() => submitAnswer(round.training === "square-colors"
                   ? { training: "square-colors", answer: "dark" }
-                  : round.training === "same-color"
-                    ? { training: "same-color", answer: "same" }
-                    : round.training === "diagonals"
-                      ? { training: "diagonals", answer: "same" }
-                      : { training: "knight", answer: "valid" })}
+                  : pairAnswer(round.training, true))}
                 disabled={round.feedback !== null || round.kind === "paused"}
               >
                 <ArrowRight className="answer-direction" size={19} aria-hidden="true" />
