@@ -79,8 +79,10 @@ tasks.register('verifyReleaseSigning') {
     }
 }
 
-tasks.named('assembleRelease').configure {
-    dependsOn tasks.named('verifyReleaseSigning')
+tasks.configureEach { task ->
+    if (task.name in ['packageRelease', 'validateSigningRelease']) {
+        task.dependsOn tasks.named('verifyReleaseSigning')
+    }
 }
 
 try {
