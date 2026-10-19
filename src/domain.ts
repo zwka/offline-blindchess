@@ -42,7 +42,7 @@ type Feedback =
   | { kind: "correct"; picked: SquareColor; expected: SquareColor }
   | { kind: "incorrect"; picked: SquareColor; expected: SquareColor };
 
-type RoundCounts = {
+type RoundSnapshot = {
   prompt: Square;
   correct: number;
   answered: number;
@@ -51,8 +51,8 @@ type RoundCounts = {
 
 export type RoundState =
   | { kind: "idle" }
-  | (RoundCounts & { kind: "running"; endsAt: number })
-  | (RoundCounts & { kind: "paused"; remainingMs: number })
+  | (RoundSnapshot & { kind: "running"; endsAt: number })
+  | (RoundSnapshot & { kind: "paused"; remainingMs: number })
   | { kind: "finished"; attempt: Attempt };
 
 export function squareColor(square: Square): SquareColor {
@@ -145,17 +145,15 @@ export function pauseRound(state: RoundState, now: number): RoundState {
     return state;
   }
 
-  const left = Math.max(0, state.endsAt - now);
+  const { endsAt, ...snapshot } = state;
+  const left = Math.max(0, endsAt - now);
   if (left === 0) {
     return state;
   }
 
   return {
+    ...snapshot,
     kind: "paused",
-    prompt: state.prompt,
-    correct: state.correct,
-    answered: state.answered,
-    feedback: state.feedback,
     remainingMs: left
   };
 }
@@ -165,14 +163,9 @@ export function resumeRound(state: RoundState, now: number): RoundState {
     return state;
   }
 
-  return {
-    kind: "running",
-    prompt: state.prompt,
-    correct: state.correct,
-    answered: state.answered,
-    feedback: state.feedback,
-    endsAt: now + state.remainingMs
-  };
+  const { remainingMs: left, ...snapshot } = state;
+
+  return { ...snapshot, kind: "running", endsAt: now + left };
 }
 
 export function finishRound(input: {

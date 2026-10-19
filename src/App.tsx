@@ -150,6 +150,21 @@ function App() {
     setRound(next);
   };
 
+  const finishExpiredAttempt = (current: RoundState, now: number): void => {
+    const completed = finishRound({
+      state: current,
+      now,
+      id: crypto.randomUUID(),
+      completedAt: new Date(now).toISOString()
+    });
+    if (completed.kind !== "finished") {
+      return;
+    }
+
+    updateRound(completed);
+    setScreen("results");
+  };
+
   useEffect(() => {
     const handleInstallPrompt = (event: BeforeInstallPromptEvent) => {
       event.preventDefault();
@@ -166,14 +181,7 @@ function App() {
 
       if (document.hidden && current.kind === "running") {
         if (remainingMs(current, now) === 0) {
-          const complete = finishRound({
-            state: current,
-            now,
-            id: crypto.randomUUID(),
-            completedAt: new Date(now).toISOString()
-          });
-          updateRound(complete);
-          setScreen("results");
+          finishExpiredAttempt(current, now);
           return;
         }
         updateRound(pauseRound(current, now));
@@ -205,14 +213,7 @@ function App() {
       });
 
       if (left === 0) {
-        const complete = finishRound({
-          state: current,
-          now,
-          id: crypto.randomUUID(),
-          completedAt: new Date(now).toISOString()
-        });
-        updateRound(complete);
-        setScreen("results");
+        finishExpiredAttempt(current, now);
       }
     };
 
@@ -260,14 +261,7 @@ function App() {
 
     const now = Date.now();
     if (remainingMs(current, now) === 0) {
-      const complete = finishRound({
-        state: current,
-        now,
-        id: crypto.randomUUID(),
-        completedAt: new Date(now).toISOString()
-      });
-      updateRound(complete);
-      setScreen("results");
+      finishExpiredAttempt(current, now);
       return;
     }
 
