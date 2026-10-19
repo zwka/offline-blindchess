@@ -2,11 +2,3 @@ node_modules/
 dist/
 coverage/
 *.local
-android/.gradle/
-android/local.properties
-android/build/
-android/app/build/
-*.jks
-*.keystore
-*.p12
-*.pfx
