@@ -1,10 +1,16 @@
 # Offline Blind Chess
 
-An installable, offline-first chess-training PWA with Square Colors, Same Color, Coordinates, and on-device attempt history.
+An installable, offline-first chess-training PWA with six drills.
+
+Practice Square Colors, Same Color, Coordinates, Diagonals, Quadrant, and Knight. The app saves attempt history on this device and supports System, Light, and Dark themes.
 
 Choose a drill to open its first question. The clock stays at 60 seconds until you answer. Your first answer starts the clock and counts toward the attempt.
 
 When time runs out, Results shows the final score, accuracy, answer count, and personal best for that drill. Select **History** to open that drill's attempt history.
+
+## Choose a theme
+
+Choose **System**, **Light**, or **Dark** in the header. System follows your device setting. The app remembers your choice in this browser on this device.
 
 ## Play Square Colors
 
@@ -21,6 +27,27 @@ Choose **Different** with the left arrow button or left arrow key. Choose **Same
 ## Play Coordinates
 
 Each attempt lasts 60 seconds. A square coordinate appears above an unlabeled chessboard. Tap or click the matching square. The board uses the standard orientation, with a1 at the bottom left and h8 at the top right. A wrong selection counts as an answer and reveals the target square.
+
+## Play Diagonals
+
+Each attempt lasts 60 seconds. Decide whether two square coordinates lie on the same diagonal. Prompts with and without a shared diagonal occur equally often. Choose **Different** with the left arrow button or left arrow key. Choose **Same** with the right arrow button or right arrow key.
+
+## Play Quadrant
+
+Each attempt lasts 60 seconds. Identify which quadrant contains the shown square coordinate by clicking **Quadrant 1**, **Quadrant 2**, **Quadrant 3**, or **Quadrant 4**. The board uses the standard orientation.
+
+- Quadrant 1 contains files a-d and ranks 5-8.
+- Quadrant 2 contains files e-h and ranks 5-8.
+- Quadrant 3 contains files a-d and ranks 1-4.
+- Quadrant 4 contains files e-h and ranks 1-4.
+
+The rule dialog shows the same map. Practice one quadrant range at a time.
+
+## Play Knight
+
+Each attempt lasts 60 seconds. Decide whether a knight can move between two square coordinates in one move. The file and rank distances must be one and two, in either order. The drill samples valid and invalid pairs equally, and every pair uses two distinct squares.
+
+Choose **No** with the left arrow button or left arrow key. Choose **Yes** with the right arrow button or right arrow key. The rule dialog explains the L-shaped move.
 
 ## Review attempts
 

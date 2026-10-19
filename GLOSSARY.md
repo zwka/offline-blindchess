@@ -26,7 +26,7 @@ A training drill where a player locates the chessboard square represented by a c
 One completed 60-second round of a training drill.
 
 **Training Module**:
-One of the available chess training drills, such as Square Colors, Same Color, or Coordinates.
+One of the available chess training drills, such as Square Colors, Same Color, Coordinates, Diagonals, Quadrant, or Knight.
 
 **Score**:
 The number of correct answers in one attempt.
