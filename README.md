@@ -1,6 +1,6 @@
 # Offline Blind Chess
 
-## 1. Short Description
+## 1. Description
 
 An installable, offline-first chess-training app with six 60-second drills: Square Colors, Same Color, Coordinates, Diagonals, Quadrant, and Knight. It saves attempt history and personal bests in the current browser on this device.
 
