@@ -1,101 +1,56 @@
 # Offline Blind Chess
 
-An installable, offline-first chess-training PWA with six drills.
+## 1. Short Description
 
-Practice Square Colors, Same Color, Coordinates, Diagonals, Quadrant, and Knight. The app saves attempt history on this device and supports System, Light, and Dark themes.
+An installable, offline-first chess-training app with six 60-second drills: Square Colors, Same Color, Coordinates, Diagonals, Quadrant, and Knight. It saves attempt history and personal bests in the current browser on this device.
 
-Choose a drill to open its first question. The clock stays at 60 seconds until you answer. Your first answer starts the clock and counts toward the attempt.
+## 2. Prerequisites
 
-When time runs out, Results shows the final score, accuracy, answer count, and personal best for that drill. Select **History** to open that drill's attempt history.
+- Node.js with npm to install, develop, and build the app.
+- A modern browser to use the app. Installable PWA features and offline use require the app to be served over HTTPS, or from `localhost` during development.
+- Optional: `cloudflared` to open a temporary HTTPS tunnel to the production build for testing or installing on a phone. The included tunnel command supports macOS and Linux.
 
-## Choose a theme
+## 3. Development Setup
 
-Choose **System**, **Light**, or **Dark** in the header. System follows your device setting. The app remembers your choice in this browser on this device.
+1. Open a terminal in the repository directory.
+2. Install dependencies:
 
-## Play Square Colors
+   ```sh
+   npm ci
+   ```
 
-Each attempt lasts 60 seconds. Identify a square as Light or Dark. Every correct answer adds one point, and the results show your score, answer count, and accuracy.
+3. Start the development server:
 
-Choose **Light** with the left arrow button or left arrow key. Choose **Dark** with the right arrow button or right arrow key. The app pauses the timer when you switch away and resumes when you return. Closing the app before the attempt ends discards that attempt.
+   ```sh
+   npm run dev
+   ```
 
-## Play Same Color
+4. Open the local URL printed in the terminal, usually `http://localhost:5173`.
+5. To run the tests, use `npm test`.
 
-Each attempt lasts 60 seconds. Decide whether two square coordinates have the same board color. Two squares match when their file-plus-rank totals have the same parity. Each correct answer adds one point.
+## 4. Production Setup
 
-Choose **Different** with the left arrow button or left arrow key. Choose **Same** with the right arrow button or right arrow key. The app pauses the timer when you switch away and resumes when you return. Closing the app before the attempt ends discards that attempt.
+1. From the repository directory, install dependencies and build the app:
 
-## Play Coordinates
+   ```sh
+   npm ci
+   npm run build
+   ```
 
-Each attempt lasts 60 seconds. A square coordinate appears above an unlabeled chessboard. Tap or click the matching square. The board uses the standard orientation, with a1 at the bottom left and h8 at the top right. A wrong selection counts as an answer and reveals the target square.
+   The production-ready files are written to `dist/`.
 
-## Play Diagonals
+2. Check the production build locally by running `npm run preview` and opening the URL printed in the terminal.
+3. Publish the contents of `dist/` to a static web host configured to serve the app over HTTPS. This repository does not configure a specific hosting provider.
+4. Open the hosted app once while online. Use the browser's install option to add it to a device; after the first online visit, the app shell is cached for offline use.
 
-Each attempt lasts 60 seconds. Decide whether two square coordinates lie on the same diagonal. Prompts with and without a shared diagonal occur equally often. Choose **Different** with the left arrow button or left arrow key. Choose **Same** with the right arrow button or right arrow key.
-
-## Play Quadrant
-
-Each attempt lasts 60 seconds. Identify which quadrant contains the shown square coordinate by clicking **Quadrant 1**, **Quadrant 2**, **Quadrant 3**, or **Quadrant 4**. The board uses the standard orientation.
-
-- Quadrant 1 contains files a-d and ranks 5-8.
-- Quadrant 2 contains files e-h and ranks 5-8.
-- Quadrant 3 contains files a-d and ranks 1-4.
-- Quadrant 4 contains files e-h and ranks 1-4.
-
-The rule dialog shows the same map. Practice one quadrant range at a time.
-
-## Play Knight
-
-Each attempt lasts 60 seconds. Decide whether a knight can move between two square coordinates in one move. The file and rank distances must be one and two, in either order. The drill samples valid and invalid pairs equally, and every pair uses two distinct squares.
-
-Choose **No** with the left arrow button or left arrow key. Choose **Yes** with the right arrow button or right arrow key. The rule dialog explains the L-shaped move.
-
-## Review attempts
-
-Completed attempts from all drills stay in this browser on this device. Open **History** and choose a drill to review its attempts and personal best. Each history tab shows only that drill's scores. Clearing history removes all saved attempts, and clearing this browser's site data also removes them.
-
-## Run locally
-
-```sh
-npm install
-npm run dev
-```
-
-## Install on a mobile device
-
-Use a Cloudflare Quick Tunnel to open the production build on a phone over HTTPS. Install [`cloudflared`](https://developers.cloudflare.com/tunnel/downloads/) first. On macOS with Homebrew, run `brew install cloudflared`.
-
-From the repository root, run:
+For a temporary phone test without publishing, install `cloudflared` (on macOS with Homebrew, run `brew install cloudflared`), then run:
 
 ```sh
 ./offline-blindchess --install-mobile
 ```
 
-Open the printed `https://` URL on your phone and install the app from the browser menu. On Android, choose **Install app**. On iPhone, open the link in Safari, tap **Share**, then choose **Add to Home Screen**.
-
-The command installs dependencies, builds the app, then starts the preview server and tunnel in the background. They keep running after the command exits. Stop both from the repository with:
+Open the printed HTTPS URL on the phone and install from the browser menu. The temporary URL is public to anyone who knows it and changes when the tunnel restarts. Stop the preview server and tunnel with:
 
 ```sh
 ./offline-blindchess --shutdown
-```
-
-The service worker caches the app so it can open offline after its first online visit. A Quick Tunnel URL is temporary, changes each time the tunnel starts, and is public to anyone who knows it. An installed app is tied to that URL, so install it again when the URL changes.
-
-## Verify
-
-```sh
-npm test
-npm run build
-npm run preview
-```
-
-The production build precaches the app shell and its assets. After `npm run preview` starts the built app, open it once while online, then reload it offline to use the drill.
-
-On desktop, Chrome offers installation from its menu.
-
-## App icons
-
-The PWA, browser tab, and Apple home-screen icons are generated from `icon_blind.jpeg`:
-
-```sh
-npm run icons
 ```
